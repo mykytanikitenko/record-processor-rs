@@ -2,4 +2,4 @@
 
 pub mod account_balance;
 
-pub use account_balance::{AccountBalance, Balance, ConstructionError, Parts};
+pub use account_balance::{AccountBalance, Balance, OverflowError, Parts};

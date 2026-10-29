@@ -40,7 +40,7 @@ pub struct Balance(Decimal);
 /// Failure to construct an `AccountBalance`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
-pub enum ConstructionError {
+pub enum OverflowError {
     /// `available + held` overflowed the decimal range.
     #[error("total overflowed: {available} + {held}")]
     Overflow {
@@ -76,7 +76,7 @@ impl From<Decimal> for Balance {
 }
 
 impl TryFrom<Parts> for AccountBalance {
-    type Error = ConstructionError;
+    type Error = OverflowError;
 
     /// Constructs an `AccountBalance`, deriving `total` from `available` and
     /// `held` so the invariant `total == available + held` holds by
@@ -84,7 +84,7 @@ impl TryFrom<Parts> for AccountBalance {
     ///
     /// # Errors
     ///
-    /// Returns `ConstructionError::Overflow` when `available + held` exceeds
+    /// Returns `OverflowError::Overflow` when `available + held` exceeds
     /// the decimal range.
     #[inline]
     fn try_from(parts: Parts) -> Result<Self, Self::Error> {
@@ -92,7 +92,7 @@ impl TryFrom<Parts> for AccountBalance {
         let held = *parts.held;
         let total = available
             .checked_add(held)
-            .ok_or(ConstructionError::Overflow { available, held })?;
+            .ok_or(OverflowError::Overflow { available, held })?;
         Ok(Self {
             available: parts.available,
             client: parts.client,

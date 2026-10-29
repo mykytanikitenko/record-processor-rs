@@ -6,7 +6,7 @@ use rudzio::runtime::futures::ThreadPool;
 #[rudzio::suite([(runtime = ThreadPool::new, suite = Suite, test = rudzio::common::context::Test)])]
 mod tests {
     use domain::client_id::ClientId;
-    use domain::output::{AccountBalance, Balance, ConstructionError, Parts};
+    use domain::output::{AccountBalance, Balance, OverflowError, Parts};
     use rust_decimal::Decimal;
     use std::str::FromStr as _;
 
@@ -41,9 +41,9 @@ mod tests {
             locked: false,
         });
         match result {
-            Ok(row) => anyhow::bail!("expected ConstructionError, got {row:?}"),
+            Ok(row) => anyhow::bail!("expected OverflowError, got {row:?}"),
             Err(actual) => {
-                let expected = ConstructionError::Overflow {
+                let expected = OverflowError::Overflow {
                     available: max,
                     held: max,
                 };
