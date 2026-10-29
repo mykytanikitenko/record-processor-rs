@@ -27,9 +27,19 @@ cli = { path = "crates/cli" }
 domain = { path = "crates/domain" }
 compio = "=0.19.2"
 csv = "=1.4.0"
+derive_more = { version = "=2.1.1", default-features = false, features = [
+  "deref",
+] }
 pico-args = "=0.5.0"
-rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "f6b0d3a35b237d02f91088f596091f5490ea8107", features = ["runtime-futures", "runtime-compio", "common"] }
-rust_decimal = { version = "=1.43.0", default-features = false, features = ["serde-str"] }
+rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "f6b0d3a35b237d02f91088f596091f5490ea8107", features = [
+  "runtime-futures",
+  "runtime-compio",
+  "common",
+] }
+rust_decimal = { version = "=1.43.0", default-features = false, features = [
+  "serde-str",
+  "std",
+] }
 serde = { version = "=1.0.229", features = ["derive"] }
 service = { path = "crates/service" }
 storage = { path = "crates/storage" }
@@ -105,6 +115,7 @@ suspicious = { level = "deny", priority = -1 }
 # Overrides — allow lints that conflict with project style or are too noisy
 blanket_clippy_restriction_lints = { level = "allow", priority = 1 }
 error_impl_error = { level = "allow", priority = 1 }                  # thiserror derives std::error::Error; naming type Error is idiomatic
+exhaustive_structs = { level = "allow", priority = 1 }                # construction-input structs (e.g. Parts) are built via struct literal at call sites
 field_scoped_visibility_modifiers = { level = "allow", priority = 1 }
 implicit_return = { level = "allow", priority = 1 }
 missing_trait_methods = { level = "allow", priority = 1 }             # absurd for std traits like Iterator with 80+ default methods

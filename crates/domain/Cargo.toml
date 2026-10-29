@@ -12,10 +12,14 @@ repository.workspace = true
 autotests = false
 
 [dependencies]
+derive_more = { workspace = true }
 rust_decimal = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 anyhow.workspace = true
+csv = { workspace = true }
 rudzio.workspace = true
 
 [[test]]

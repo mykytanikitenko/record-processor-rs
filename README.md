@@ -53,9 +53,12 @@ How the project is put together:
   inputs; transaction ids span the full `u32` range. *(Planned — engine not
   yet implemented.)*
 - **Fixed-point money.** `rust_decimal` holds all amounts; floats are never
-  used for money. *(Planned.)*
+  used for money.
 - **Errors surfaced loudly.** Typed errors via `thiserror` propagate to the
-  caller; nothing is silently swallowed. *(Planned.)*
+  caller; nothing is silently swallowed.
+- **Input and output models separated.** `input` holds transactions read from
+  CSV (with a strictly positive `Amount`); `output` holds account-balance rows
+  whose `total = available + held` invariant is enforced by the constructor.
 - **Malformed partner references ignored.** A `dispute`, `resolve`, or
   `chargeback` naming an unknown transaction, or a transaction not under
   dispute, is ignored as a partner-side error. *(Planned.)*
@@ -65,7 +68,7 @@ How the project is put together:
 | crate | responsibility | dependencies |
 | ------------------------ | --------------------------------- | --------------------------------------------- |
 | `record-processor` (bin) | thin entry, calls `cli` | `cli` |
-| `crates/domain` | ids, amounts, transactions, accounts | `rust_decimal` |
+| `crates/domain` | transaction and account-balance models | `rust_decimal`, `serde`, `thiserror` |
 | `crates/storage` | account and transaction state | `domain`, `rust_decimal` |
 | `crates/service` | engine applying transactions | `domain`, `storage`, `rust_decimal`, `thiserror` |
 | `crates/transport` | CSV reading and writing | `csv`, `serde`, `domain`, `rust_decimal` |
@@ -111,11 +114,19 @@ ones:
 - Clients are created on first reference.
 - Client ids are `u16`; transaction ids are `u32`.
 - Transactions occur chronologically in the file.
+- Amounts are strictly positive with at most four decimal places; trailing
+  zeros normalize, so `1.50000` is accepted as `1.5`.
+- `Eof` is a stream-end signal emitted by the transport, not a CSV row; a
+  literal `eof` row is rejected during deserialization.
+- Output balances derive `total` from `available + held` in the constructor, so
+  the invariant cannot be broken. Output decimal formatting (fixed four places
+  vs. minimal) is pending; decimals serialize as-is for now.
 
 ## Status
 
-Scaffold only. The engine is not implemented; `just test` currently fails
-because there are no tests yet, so the coverage gate has no data.
+The domain model (`input` transactions and `output` balances) is implemented
+and tested; `just build`, `just lint`, and `just test` are green. The engine
+(`storage`, `service`, `transport`) is not yet implemented.
 
 ## License
 
