@@ -584,6 +584,7 @@ name = "record-processor"
 version = "0.1.0"
 dependencies = [
  "cli",
+ "thiserror",
 ]
 
 [[package]]

@@ -13,6 +13,7 @@ autotests = false
 
 [dependencies]
 cli = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true
