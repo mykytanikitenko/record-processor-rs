@@ -143,6 +143,11 @@ set -l nofallbacks_status 1
 fish "$_root/scripts/lint/no-fallbacks.fish" "$_root/tmp/no-fallbacks.ndjson"
 set nofallbacks_status $status
 
+# (l.1) shared-error-types lint
+set -l seterr_status 1
+fish "$_root/scripts/lint/shared-error-types.fish" "$_root/tmp/shared-error-types.ndjson"
+set seterr_status $status
+
 # (m) Annotate Rust findings in-place (idempotent; mutates crates/ and src/). Runs by
 #     default on every `just lint` so violations are impossible to miss.
 fish "$_root/scripts/lint/annotate.fish"
@@ -159,6 +164,8 @@ fish "$_root/scripts/lint/no-banner-comments.fish" "$_root/tmp/no-banner-comment
 set nobanner_status $status
 fish "$_root/scripts/lint/no-fallbacks.fish" "$_root/tmp/no-fallbacks.ndjson" >/dev/null 2>&1
 set nofallbacks_status $status
+fish "$_root/scripts/lint/shared-error-types.fish" "$_root/tmp/shared-error-types.ndjson" >/dev/null 2>&1
+set seterr_status $status
 
 # (o) TODO-precedence: drop marker-acknowledged Rust findings and emit the
 #     merged view to tmp/lint-findings.ndjson. Fails while anything remains.

@@ -1,0 +1,13 @@
+id: test-module
+language: Rust
+severity: info
+message: "a `#[cfg(test)]` module (its byte range excludes contained error slots)"
+rule:
+  all:
+    - kind: mod_item
+    - follows:
+        kind: attribute_item
+        regex: '#\[cfg\(test\)\]'
+        stopBy:
+          not:
+            kind: attribute_item

@@ -1,0 +1,8 @@
+id: result-alias
+valid:
+  - "type Result = u8;"
+  - "type Other<T> = std::result::Result<T, FooErr>;"
+  - "type Result<T> = Vec<T>;"
+invalid:
+  - "type Result<T> = std::result::Result<T, FooErr>;"
+  - "type Result<T> = Result<T, FooErr>;"
