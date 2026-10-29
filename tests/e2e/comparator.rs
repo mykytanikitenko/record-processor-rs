@@ -6,8 +6,8 @@ use rust_decimal::Decimal;
 /// One client account state row as emitted by the binary's stdout.
 ///
 /// Amounts are [`Decimal`] so equality is value-based: `1.5` equals
-/// `1.5000`. This keeps the harness robust to the still-open output-format
-/// decision (always 4dp vs minimal) while remaining a strict full-row check.
+/// `1.5000`. This remains a strict full-row check that is robust to any
+/// trailing-zero padding in the output.
 #[derive(Debug, PartialEq)]
 pub(crate) struct AccountRow {
     /// Available funds.

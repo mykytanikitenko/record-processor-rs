@@ -1,5 +1,3 @@
 description = "The client column exceeds the u16 maximum (65535)."
-derivation = "The row cannot be classified; its handling is governed by the malformed-row policy."
-outcome = "pending-decision"
-decision = "malformed-row-policy"
-question = "How should a malformed input row be handled — abort the entire run with a non-zero exit, or skip the offending row and continue (reporting it on stderr)?"
+derivation = "The client value 65536 exceeds the u16 maximum, so deserialization fails; the malformed-row policy aborts the run with a non-zero exit and empty stdout."
+outcome = "error"

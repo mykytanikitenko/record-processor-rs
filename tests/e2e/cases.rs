@@ -239,7 +239,7 @@ mod tests {
         run_case("060-header-only")
     }
 
-    // Malformed input — pending the malformed-row-policy decision.
+    // Malformed input — abort the run with a non-zero exit and empty stdout.
 
     #[rudzio::test]
     async fn malformed_unknown_type(_ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
