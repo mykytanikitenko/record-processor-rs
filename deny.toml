@@ -1,0 +1,37 @@
+# cargo-deny configuration for the record-processor workspace.
+#
+# All four checks are enabled and set to the strictest level. There are no
+# exclusions: no skipped crates, no license exceptions, no source exceptions
+# beyond the two allowed sources (crates.io and the rudzio git repo). Every
+# finding is a hard failure.
+
+[advisories]
+version = 2
+# The advisory DB is fetched from the RustSec git repo and cached under
+# `$CARGO_HOME/advisory-db` (cargo-deny's default). It is shared with
+# cargo-audit, which uses the same path.
+db-urls = ["https://github.com/rustsec/advisory-db"]
+vulnerability = "deny"
+unmaintained = "deny"
+unsound = "deny"
+yanked = "deny"
+notice = "warn"
+
+[bans]
+# Any crate resolved to more than one version fails the check.
+multiple-versions = "deny"
+highlight = "all"
+
+[licenses]
+version = 2
+# Allow-list: exactly the OSI-permissive SPDX identifiers present in the
+# resolved dependency graph (see scripts/lint/cargo-deny.fish and the report).
+allow = []
+# No per-crate license overrides — linters have no exclusions.
+exceptions = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/mykytanikitenko/rudzio.git"]
