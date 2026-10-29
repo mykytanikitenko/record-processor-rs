@@ -2,9 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use domain::client_id::ClientId;
-use domain::input::{Transaction, TxId};
-use domain::output::{AccountBalance, Balance, OverflowError, Parts};
+use record_processor_domain::client_id::ClientId;
+use record_processor_domain::input::{Transaction, TxId};
+use record_processor_domain::output::{AccountBalance, Balance, OverflowError, Parts};
 use rust_decimal::Decimal;
 
 use crate::service::{Service, TransactionStream};

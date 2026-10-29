@@ -48,7 +48,7 @@ csv = { version = "=1.4.0", default-features = false, features = [] }
 derive_more = { version = "=2.1.1", default-features = false, features = [
   "deref",
 ] }
-domain = { path = "crates/domain", default-features = false, features = [] }
+record-processor-domain = { path = "crates/domain", default-features = false, features = [] }
 pico-args = { version = "=0.5.0", default-features = false, features = [] }
 rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "f6b0d3a35b237d02f91088f596091f5490ea8107", default-features = false, features = [
   "runtime-futures",

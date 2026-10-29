@@ -470,19 +470,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "domain"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "csv",
- "derive_more",
- "rudzio",
- "rust_decimal",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "either"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1106,6 +1093,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "record-processor-domain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "csv",
+ "derive_more",
+ "rudzio",
+ "rust_decimal",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1362,7 +1362,7 @@ name = "service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "domain",
+ "record-processor-domain",
  "rudzio",
  "rust_decimal",
  "storage",
@@ -1449,7 +1449,7 @@ name = "storage"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "domain",
+ "record-processor-domain",
  "rudzio",
  "rust_decimal",
 ]
@@ -1687,7 +1687,7 @@ dependencies = [
  "anyhow",
  "compio",
  "csv",
- "domain",
+ "record-processor-domain",
  "rudzio",
  "rust_decimal",
  "serde",

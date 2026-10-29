@@ -1,7 +1,7 @@
 //! Async CSV account balance output.
 
 use compio::io::compat::SyncStream;
-use domain::output::AccountBalance;
+use record_processor_domain::output::AccountBalance;
 
 /// A CSV writer for account balances, backed by an asynchronous sink.
 pub struct AccountBalanceWriter<S> {

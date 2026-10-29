@@ -5,8 +5,8 @@ use rudzio::runtime::futures::ThreadPool;
 
 #[rudzio::suite([(runtime = ThreadPool::new, suite = Suite, test = rudzio::common::context::Test)])]
 mod tests {
-    use domain::client_id::ClientId;
-    use domain::input::{Amount, ConstructionError, Transaction, TxId};
+    use record_processor_domain::client_id::ClientId;
+    use record_processor_domain::input::{Amount, ConstructionError, Transaction, TxId};
     use rust_decimal::Decimal;
     use std::str::FromStr as _;
 

@@ -1,5 +1,5 @@
 [package]
-name = "domain"
+name = "record-processor-domain"
 version = "0.1.0"
 categories.workspace = true
 description = "Domain models for the record-processor payments engine"

@@ -1,8 +1,8 @@
 //! The payments-engine contract: the transaction input stream and the
 //! service trait.
 
-use domain::input::Transaction;
-use domain::output::AccountBalance;
+use record_processor_domain::input::Transaction;
+use record_processor_domain::output::AccountBalance;
 
 /// A fallible, non-blocking source of transactions.
 ///

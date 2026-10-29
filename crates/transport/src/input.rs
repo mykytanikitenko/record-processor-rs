@@ -3,7 +3,7 @@
 use std::io::{ErrorKind, Read as _};
 
 use compio::io::compat::SyncStream;
-use domain::input::Transaction;
+use record_processor_domain::input::Transaction;
 use service::TransactionStream;
 
 /// A streaming CSV reader that yields [`Transaction`] values.
