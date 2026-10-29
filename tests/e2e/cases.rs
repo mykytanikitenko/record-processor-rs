@@ -4,21 +4,23 @@
 //! checks the result against the case's declared `outcome` in `case.toml`.
 
 use anyhow::Context as _;
+use std::path::Path;
 
 use crate::case_loader::{LoadedCase, Outcome};
 
 /// Run a fixture case to completion according to its declared outcome.
 fn run_case(name: &str) -> anyhow::Result<()> {
+    let bin = crate::runner::resolve_bin();
     let case = crate::case_loader::load_case(name)?;
     match &case.meta.outcome {
-        Outcome::Success => run_success(name, &case),
-        Outcome::Error => run_error(name, &case),
+        Outcome::Success => run_success(&bin, name, &case),
+        Outcome::Error => run_error(&bin, name, &case),
         Outcome::PendingDecision => run_pending(&case),
     }
 }
 
 /// Run the binary and compare its stdout against the expected account rows.
-fn run_success(name: &str, case: &LoadedCase) -> anyhow::Result<()> {
+fn run_success(bin: &Path, name: &str, case: &LoadedCase) -> anyhow::Result<()> {
     let expected_path = case
         .expected
         .as_ref()
@@ -27,7 +29,7 @@ fn run_success(name: &str, case: &LoadedCase) -> anyhow::Result<()> {
         .with_context(|| format!("case `{name}`: failed to read expected.csv"))?;
     let expected = crate::comparator::parse_accounts(&expected_data)?;
 
-    let output = crate::runner::run_binary(&case.input)?;
+    let output = crate::runner::run_binary(bin, &case.input)?;
     anyhow::ensure!(
         output.status_success,
         "case `{name}`: expected a successful exit, got status {:?}",
@@ -44,8 +46,8 @@ fn run_success(name: &str, case: &LoadedCase) -> anyhow::Result<()> {
 }
 
 /// Run the binary and require a non-zero exit with empty stdout.
-fn run_error(name: &str, case: &LoadedCase) -> anyhow::Result<()> {
-    let output = crate::runner::run_binary(&case.input)?;
+fn run_error(bin: &Path, name: &str, case: &LoadedCase) -> anyhow::Result<()> {
+    let output = crate::runner::run_binary(bin, &case.input)?;
     anyhow::ensure!(
         !output.status_success,
         "case `{name}`: expected a non-zero exit, got status {:?}",
