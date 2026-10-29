@@ -38,6 +38,12 @@ resolver = "2"
 [workspace.dependencies]
 anyhow = { version = "=1.0.104", default-features = false, features = ["std"] }
 cli = { path = "crates/cli", default-features = false, features = [] }
+compio = { version = "=0.19.2", default-features = false, features = [
+  "runtime",
+  "fs",
+  "io-compat",
+  "polling",
+] }
 csv = { version = "=1.4.0", default-features = false, features = [] }
 derive_more = { version = "=2.1.1", default-features = false, features = [
   "deref",
@@ -114,6 +120,7 @@ unused_qualifications = "deny"
 unused_results = "deny"
 
 # Intentionally allowed
+async_fn_in_trait = "allow" # compio is thread-per-core; async trait methods return !Send futures
 single_use_lifetimes = "allow"
 variant_size_differences = "allow"
 

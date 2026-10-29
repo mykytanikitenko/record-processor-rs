@@ -12,6 +12,7 @@ repository.workspace = true
 autotests = false
 
 [dependencies]
+compio = { workspace = true }
 pico-args = { workspace = true }
 service = { workspace = true }
 storage = { workspace = true }
