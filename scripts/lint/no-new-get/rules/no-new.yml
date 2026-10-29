@@ -1,0 +1,14 @@
+id: no-new
+language: Rust
+severity: error
+message: "construct through `TryFrom` (fallible) or `From` (infallible) so construction one conventional entry point"
+rule:
+  any:
+    - kind: function_item
+      has:
+        field: name
+        regex: '^new$'
+    - kind: function_signature_item
+      has:
+        field: name
+        regex: '^new$'

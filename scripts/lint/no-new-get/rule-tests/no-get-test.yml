@@ -1,0 +1,18 @@
+id: no-get
+valid:
+  - "fn forget() {}"
+  - "fn target() {}"
+  - "fn getter() {}"
+  - "let target = 5;"
+  - "let x = foo.get();"
+  - "let x = foo.get_value();"
+  - "struct S { get: u8 }"
+invalid:
+  - "fn get() {}"
+  - "fn get(&self) -> u8 { 0 }"
+  - "pub fn get() -> u8 { 0 }"
+  - "fn get_value() -> u8 { 0 }"
+  - "fn get_name(&self) -> &str { \"\" }"
+  - "impl Foo {\n    fn get(&self) -> u8 { 0 }\n}"
+  - "impl Foo for Bar {\n    fn get_value(&self) -> u8 { 0 }\n}"
+  - "trait Accessor {\n    fn get(&self) -> u8;\n}"

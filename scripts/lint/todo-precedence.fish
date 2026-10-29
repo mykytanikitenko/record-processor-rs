@@ -24,6 +24,8 @@ set -a sources no-suppressions tmp/no-suppressions.ndjson
 set -a sources no-banner-comments tmp/no-banner-comments.ndjson
 set -a sources no-fallbacks tmp/no-fallbacks.ndjson
 set -a sources module-only tmp/module-only.ndjson
+set -a sources no-new-get tmp/no-new-get.ndjson
+set -a sources no-static-lifetime tmp/no-static-lifetime.ndjson
 set -a sources clippy tmp/clippy.json
 
 # Normalized findings: {source, file, line, ruleId, message}. ast-grep
