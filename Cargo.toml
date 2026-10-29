@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 anyhow.workspace = true
+compio.workspace = true
 csv.workspace = true
 rudzio.workspace = true
 rust_decimal.workspace = true
@@ -43,6 +44,7 @@ compio = { version = "=0.19.2", default-features = false, features = [
   "fs",
   "io-compat",
   "polling",
+  "process",
 ] }
 csv = { version = "=1.4.0", default-features = false, features = [] }
 derive_more = { version = "=2.1.1", default-features = false, features = [

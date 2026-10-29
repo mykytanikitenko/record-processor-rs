@@ -6,6 +6,7 @@
 
 mod case_loader;
 mod cases;
+mod cli_contract;
 mod comparator;
 mod runner;
 
