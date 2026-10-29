@@ -1,0 +1,7 @@
+id: no-static-lifetime
+language: Rust
+severity: error
+message: "`'static` lifetime pins data to the program lifetime and hides the real owner; use a named lifetime or an owned value instead"
+rule:
+  kind: lifetime
+  regex: "^'static$"

@@ -1,0 +1,14 @@
+id: no-static-lifetime
+valid:
+  - "fn f<'a>(x: &'a str) -> &'a str { x }"
+  - "fn f(x: &'_ str) -> &'_ str { x }"
+  - "static FOO: u8 = 1;"
+  - "let s: &str = \"x\";"
+  - "const N: usize = 4;"
+invalid:
+  - "let s: &'static str = \"x\";"
+  - "fn f<T: 'static>() {}"
+  - "fn f() -> Box<dyn Error + 'static> { todo!() }"
+  - "impl<'a> X for Y where T: 'static {}"
+  - "type C = Cow<'static, str>;"
+  - "const S: &'static str = \"x\";"

@@ -21,7 +21,7 @@ cd "$repo_root"
 #    `range.start.line`; the custom ndjson records already carry a 1-based
 #    `line`; clippy structured JSON carries a 1-based `line_start`.
 set -l findings_raw (mktemp)
-for src in tmp/panic.ndjson tmp/non-rudzio.ndjson tmp/no-suppressions.ndjson tmp/no-banner-comments.ndjson tmp/no-fallbacks.ndjson tmp/module-only.ndjson
+for src in tmp/panic.ndjson tmp/non-rudzio.ndjson tmp/no-suppressions.ndjson tmp/no-banner-comments.ndjson tmp/no-fallbacks.ndjson tmp/module-only.ndjson tmp/no-new-get.ndjson tmp/no-static-lifetime.ndjson
     if test -s "$src"
         jq -c 'if has("range") then {file, line:(.range.start.line + 1), ruleId, message} else {file, line, ruleId, message} end' "$src" >>"$findings_raw"
     end

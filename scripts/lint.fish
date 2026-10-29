@@ -1,8 +1,8 @@
 #!/usr/bin/env fish
 # Full lint pipeline: format check + fish syntax + clippy + panic + non-fish +
 # no-suppressions + no-banner-comments + workspace-deps + yaml-lint + recipe
-# lint + non-rudzio + no-fallbacks + module-only. Rust findings are annotated
-# in-place with
+# lint + non-rudzio + no-fallbacks + module-only + no-new-get +
+# no-static-lifetime. Rust findings are annotated in-place with
 # TODO(lint/<rule>) markers, then a TODO-precedence pass reports acknowledged
 # violations through the todo-comments rule. Fails while any finding remains.
 set -l _script_dir (status dirname)
@@ -149,11 +149,21 @@ set -l moduleonly_status 1
 fish "$_root/scripts/lint/module-only.fish" "$_root/tmp/module-only.ndjson"
 set moduleonly_status $status
 
-# (n) Annotate Rust findings in-place (idempotent; mutates crates/ and src/). Runs by
+# (n) no-new-get lint
+set -l nonewget_status 1
+fish "$_root/scripts/lint/no-new-get.fish" "$_root/tmp/no-new-get.ndjson"
+set nonewget_status $status
+
+# (o) no-static-lifetime lint
+set -l nostaticlifetime_status 1
+fish "$_root/scripts/lint/no-static-lifetime.fish" "$_root/tmp/no-static-lifetime.ndjson"
+set nostaticlifetime_status $status
+
+# (p) Annotate Rust findings in-place (idempotent; mutates crates/ and src/). Runs by
 #     default on every `just lint` so violations are impossible to miss.
 fish "$_root/scripts/lint/annotate.fish"
 
-# (o) Re-run the cheap Rust scans so the freshly inserted TODO markers are
+# (q) Re-run the cheap Rust scans so the freshly inserted TODO markers are
 #     visible to the todo-comments rule and the precedence view is current.
 fish "$_root/scripts/lint/panic.fish" "$_root/tmp/panic.ndjson" >/dev/null 2>&1
 set panic_status $status
@@ -167,16 +177,21 @@ fish "$_root/scripts/lint/no-fallbacks.fish" "$_root/tmp/no-fallbacks.ndjson" >/
 set nofallbacks_status $status
 fish "$_root/scripts/lint/module-only.fish" "$_root/tmp/module-only.ndjson" >/dev/null 2>&1
 set moduleonly_status $status
+fish "$_root/scripts/lint/no-new-get.fish" "$_root/tmp/no-new-get.ndjson" >/dev/null 2>&1
+set nonewget_status $status
+fish "$_root/scripts/lint/no-static-lifetime.fish" "$_root/tmp/no-static-lifetime.ndjson" >/dev/null 2>&1
+set nostaticlifetime_status $status
 
-# (p) TODO-precedence: drop marker-acknowledged Rust findings and emit the
+# (r) TODO-precedence: drop marker-acknowledged Rust findings and emit the
 #     merged view to tmp/lint-findings.ndjson. Fails while anything remains.
 set -l precedence_status 1
 fish "$_root/scripts/lint/todo-precedence.fish"
 set precedence_status $status
 
 # Summary. Rust sub-lints (clippy, panic, non-rudzio, no-suppressions,
-# no-banner-comments, no-fallbacks, module-only) read PASS/TODO/FAIL from the
-# precedence status file; non-Rust sub-lints use their own status vars. The
+# no-banner-comments, no-fallbacks, module-only, no-new-get,
+# no-static-lifetime) read PASS/TODO/FAIL from the precedence status file;
+# non-Rust sub-lints use their own status vars. The
 # finding list and per-rule counts come from the merged view
 # tmp/lint-findings.ndjson.
 set -l s_fmt FAIL

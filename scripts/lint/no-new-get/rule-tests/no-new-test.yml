@@ -1,0 +1,19 @@
+id: no-new
+valid:
+  - "fn renew() {}"
+  - "fn new_value() {}"
+  - "let new = 5;"
+  - "let v = Vec::new();"
+  - "let x = Foo::new();"
+  - "struct S { new: u8 }"
+  - "impl Foo {\n    fn from(v: u8) -> Self { Self }\n}"
+invalid:
+  - "fn new() {}"
+  - "pub fn new() {}"
+  - "pub(crate) fn new() -> Self { Self }"
+  - "fn new(value: u8) -> Self { Self }"
+  - "const fn new() -> Self { Self }"
+  - "async fn new() -> Self { Self }"
+  - "impl Foo {\n    fn new() -> Self { Self }\n}"
+  - "impl Foo for Bar {\n    fn new() -> Self { Self }\n}"
+  - "trait Builder {\n    fn new() -> Self;\n}"
