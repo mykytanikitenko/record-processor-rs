@@ -1,0 +1,17 @@
+id: unchecked-arithmetic
+language: Rust
+severity: error
+message: "saturating/wrapping/overflowing arithmetic silently discards overflow; use checked arithmetic and propagate the error (e.g. `a.checked_add(b).ok_or(E)?`)"
+rule:
+  any:
+    - pattern: $X.$M($$$)
+    - pattern: "Wrapping($$$)"
+    - pattern: "Saturating($$$)"
+    - pattern: "std::num::Wrapping($$$)"
+    - pattern: "std::num::Saturating($$$)"
+    - pattern: "core::num::Wrapping($$$)"
+    - pattern: "core::num::Saturating($$$)"
+    - pattern: $T::$M($$$)
+constraints:
+  M:
+    regex: '^(saturating|wrapping|overflowing)_'

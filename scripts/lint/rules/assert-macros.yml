@@ -1,0 +1,9 @@
+id: assert-macros
+language: Rust
+severity: error
+message: "`$M!` panics when the assertion fails. Replace with an error-returning comparison (return a `Result` and use `?`)."
+rule:
+  pattern: $M!($$$)
+constraints:
+  M:
+    regex: "(^|::)(assert|assert_eq|assert_ne|assert_matches|debug_assert|debug_assert_eq|debug_assert_ne|debug_assert_matches)$"

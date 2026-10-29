@@ -1,0 +1,24 @@
+id: rudzio-test-outside-suite
+language: Rust
+severity: error
+message: "`#[rudzio::test]` must be nested inside a `#[rudzio::suite(...)]` module — a test registered outside a suite is never compiled or run by the rudzio runner. Wrap the test in a suite module so it is discovered and executed."
+rule:
+  all:
+    - kind: function_item
+    - follows:
+        kind: attribute_item
+        regex: '.*#\[rudzio::test\b.*'
+        stopBy:
+          not:
+            kind: attribute_item
+    - not:
+        inside:
+          all:
+            - kind: mod_item
+            - follows:
+                kind: attribute_item
+                regex: '.*#\[rudzio::suite\b.*'
+                stopBy:
+                  not:
+                    kind: attribute_item
+          stopBy: end

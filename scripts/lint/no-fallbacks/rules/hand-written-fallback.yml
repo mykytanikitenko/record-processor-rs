@@ -1,0 +1,19 @@
+id: hand-written-fallback
+language: Rust
+severity: error
+message: "hand-rolled `None` fallback silently substitutes a value where the missing case must propagate as a typed error (return `Err`, `bail!`, or use `?`)"
+rule:
+  all:
+    - kind: match_arm
+      regex: '^None\b'
+    - not:
+        has:
+          any:
+            - pattern: "Err($$$)"
+            - pattern: "bail!($$$)"
+            - pattern: "panic!($$$)"
+            - pattern: "unreachable!($$$)"
+            - pattern: "todo!($$$)"
+            - pattern: "unimplemented!($$$)"
+            - kind: try_expression
+            - kind: return_expression

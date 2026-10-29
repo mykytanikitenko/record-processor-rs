@@ -1,0 +1,15 @@
+id: error-source-lost
+language: Rust
+severity: error
+message: "the original error is dropped or flattened; preserve the error chain (use `?`, `.context(..)`, or a typed error)"
+rule:
+  any:
+    - pattern: $X.map_err(|_| $BODY)
+    - kind: if_expression
+      regex: '^if\s+let\s+Err\b'
+    - kind: let_declaration
+      regex: '^let\s+Err\b'
+    - kind: let_declaration
+      regex: '^let\s+_\b'
+    - pattern: "_ = $E"
+    - pattern: "std::process::exit($$$)"

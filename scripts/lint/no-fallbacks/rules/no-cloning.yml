@@ -1,0 +1,15 @@
+id: no-cloning
+language: Rust
+severity: error
+message: "cloning/copying out of a value sidesteps ownership/lifetime handling; restructure to borrow or propagate instead"
+rule:
+  any:
+    - pattern: $X.to_owned()
+    - pattern: $X.to_string()
+    - pattern: $X.clone()
+    - pattern: "ToOwned::to_owned"
+    - pattern: "ToString::to_string"
+    - pattern: "Clone::clone"
+    - pattern: $T::to_owned($$$)
+    - pattern: $T::to_string($$$)
+    - pattern: $T::clone($$$)

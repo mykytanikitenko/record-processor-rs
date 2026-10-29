@@ -1,0 +1,10 @@
+id: todo-comments
+language: Rust
+severity: error
+message: "unresolved marker left in code; resolve the work or remove the comment"
+rule:
+  any:
+    - kind: line_comment
+      regex: '(?i)\b(TODO|FIXME|XXX|HACK|TBD)\b'
+    - kind: block_comment
+      regex: '(?i)\b(TODO|FIXME|XXX|HACK|TBD)\b'

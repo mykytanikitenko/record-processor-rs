@@ -1,0 +1,14 @@
+id: assert-macros
+valid:
+  - "panic!(\"boom\")"
+  - "let x = a.unwrap_or(0);"
+  - "assert2!(x)"
+invalid:
+  - "assert!(x)"
+  - "assert_eq!(a, b)"
+  - "assert_ne!(a, b)"
+  - "debug_assert!(x)"
+  - "debug_assert_eq!(a, b)"
+  - "debug_assert_ne!(a, b)"
+  - "assert_matches!(x, Some(_))"
+  - "debug_assert_matches!(x, Some(_))"

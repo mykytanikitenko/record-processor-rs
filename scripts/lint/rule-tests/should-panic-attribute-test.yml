@@ -1,0 +1,8 @@
+id: should-panic-attribute
+valid:
+  - "#[test]"
+  - "#[allow(dead_code)]"
+  - "#[should_panics]"
+invalid:
+  - "#[should_panic]"
+  - "#[should_panic(expected = \"boom\")]"

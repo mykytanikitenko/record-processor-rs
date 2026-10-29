@@ -1,0 +1,27 @@
+[package]
+name = "domain"
+version = "0.1.0"
+categories.workspace = true
+description = "Domain models for the record-processor payments engine"
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+rust_decimal = { workspace = true }
+
+[dev-dependencies]
+anyhow.workspace = true
+rudzio.workspace = true
+
+[[test]]
+name = "main"
+path = "tests/main.rs"
+harness = false
+
+[lints]
+workspace = true

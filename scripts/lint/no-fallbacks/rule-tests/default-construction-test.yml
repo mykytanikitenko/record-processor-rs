@@ -1,0 +1,21 @@
+id: default-construction
+valid:
+  - "let x = 5u32;"
+  - "let x = Foo { a: 1 };"
+  - "#[derive(Clone, Debug)]\nstruct S;"
+  - "impl Foo for Bar { fn f(&self) {} }"
+invalid:
+  - "Default::default()"
+  - "Foo::default()"
+  - "let x = Foo { a: 1, ..Default::default() };"
+  - "#[derive(Clone, Default)]\nstruct S;"
+  - "#[derive(Default, Clone)]\nstruct S;"
+  - "impl Default for Foo { fn default() -> Self { Self } }"
+  - "impl<T> Default for Foo<T> { fn default() -> Self { Self } }"
+  - "#[default]\nfield: u8,"
+  - "#[serde(default)]\nfield: u8,"
+  - "#[serde(default = \"x\")]\nfield: u8,"
+  - "#[serde(default, rename = \"x\")]\nfield: u8,"
+  - "mem::take(&mut x)"
+  - "std::mem::take(&mut x)"
+  - "core::mem::take(&mut x)"

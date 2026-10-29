@@ -1,0 +1,24 @@
+id: rudzio-test-outside-suite
+language: Rust
+valid:
+  - |
+    #[rudzio::suite([(runtime = rudzio::runtime::futures::ThreadPool::new, suite = rudzio::common::context::Suite, test = rudzio::common::context::Test)])]
+    mod tests {
+        #[rudzio::test]
+        async fn in_suite(ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+invalid:
+  - |
+    #[rudzio::test]
+    async fn bare_top_level() -> anyhow::Result<()> {
+        Ok(())
+    }
+  - |
+    mod tests {
+        #[rudzio::test]
+        async fn in_plain_mod() -> anyhow::Result<()> {
+            Ok(())
+        }
+    }

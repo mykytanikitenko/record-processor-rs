@@ -1,0 +1,21 @@
+extends: default
+
+# Kept consistent with `.yamlfmt`:
+#   - document-start: both disabled (no `---` in repo YAML).
+#   - line-length:    both disabled (rule messages + embedded Rust are long).
+#   - indentation:    sequences indented, multi-line strings not re-checked.
+#   - truthy:         only `true`/`false` allowed as bare booleans.
+#   - comments:       one space before `#`, matching yamlfmt `pad_line_comments: 1`.
+rules:
+  document-start: disable
+  line-length: disable
+  comments:
+    min-spaces-from-content: 1
+    require-starting-space: true
+  indentation:
+    spaces: consistent
+    indent-sequences: true
+    check-multi-line-strings: false
+  truthy:
+    allowed-values: ['true', 'false']
+    check-keys: true

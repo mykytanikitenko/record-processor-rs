@@ -1,0 +1,21 @@
+# yamlfmt configuration. The `basic` formatter re-emits YAML without
+# touching literal (`|`) block-scalar content, which is what the ast-grep
+# rule-test fixtures rely on for their embedded Rust.
+#
+# Keys pinned here must stay consistent with `.yamllint` (document-start,
+# sequence indentation, line-length, truthy, comment spacing).
+formatter:
+  type: basic
+  # No `---` document-start marker: the repo's YAML has none, and
+  # `.yamllint` disables `document-start`.
+  include_document_start: false
+  indent: 2
+  # Sequences are indented (never indentless), matching yamllint
+  # `indent-sequences: true`.
+  indentless_arrays: false
+  # Line length is not enforced here; `.yamllint` disables `line-length`
+  # too, so the two stay in agreement.
+  max_line_length: 0
+  # One space before an inline comment, matching yamllint
+  # `comments.min-spaces-from-content: 1`.
+  pad_line_comments: 1

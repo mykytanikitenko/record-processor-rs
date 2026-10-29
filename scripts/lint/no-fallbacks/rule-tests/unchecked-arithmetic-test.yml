@@ -1,0 +1,16 @@
+id: unchecked-arithmetic
+valid:
+  - "a.checked_add(b).ok_or(E)?;"
+  - "a.checked_sub(b).ok_or(E)?;"
+  - "a + b"
+invalid:
+  - "a.saturating_add(b)"
+  - "a.saturating_sub(b)"
+  - "a.saturating_mul(b)"
+  - "a.wrapping_add(b)"
+  - "a.wrapping_neg()"
+  - "a.overflowing_add(b)"
+  - "u32::saturating_add(a, b)"
+  - "u32::wrapping_mul(a, b)"
+  - "std::num::Wrapping(a)"
+  - "std::num::Saturating(a)"

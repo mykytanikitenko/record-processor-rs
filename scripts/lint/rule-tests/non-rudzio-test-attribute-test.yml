@@ -1,0 +1,19 @@
+id: non-rudzio-test-attribute
+language: Rust
+valid:
+  - "#[cfg(test)]"
+  - "#[cfg(any(test, rudzio_test))]"
+  - "#[cfg(all(test, not(rudzio_test)))]"
+  - "#[rudzio::test]"
+  - "#[rudzio::suite([(runtime = rudzio::runtime::futures::ThreadPool::new)])]"
+  - "#[allow(dead_code)]"
+  - "#[derive(Debug)]"
+invalid:
+  - "#[test]"
+  - "#[compio::test]"
+  - "#[tokio::test]"
+  - "#[async_std::test]"
+  - "#[rstest]"
+  - "#[test_case]"
+  - "#[test_case(1, 2)]"
+  - "#[bench]"

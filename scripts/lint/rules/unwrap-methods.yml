@@ -1,0 +1,23 @@
+id: unwrap-methods
+language: Rust
+severity: error
+message: "`unwrap`/`expect` panics when the value is `None` or `Err`. Use `.get()`, `?`, or return a `Result` instead."
+rule:
+  all:
+    - any:
+        - pattern: $X.unwrap()
+        - pattern: $X.unwrap_err()
+        - pattern: $X.unwrap_unchecked()
+        - pattern: $X.unwrap_err_unchecked()
+        - pattern: $X.expect($$$)
+        - pattern: $X.expect_err($$$)
+        - pattern: $T::unwrap($$$)
+        - pattern: $T::unwrap_err($$$)
+        - pattern: $T::unwrap_unchecked($$$)
+        - pattern: $T::unwrap_err_unchecked($$$)
+        - pattern: $T::expect($$$)
+        - pattern: $T::expect_err($$$)
+    - not:
+        inside:
+          kind: try_expression
+          stopBy: end

@@ -1,0 +1,30 @@
+[package]
+name = "service"
+version = "0.1.0"
+categories.workspace = true
+description = "Payments engine applying transactions to storage for record-processor"
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+domain = { workspace = true }
+rust_decimal = { workspace = true }
+storage = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+anyhow.workspace = true
+rudzio.workspace = true
+
+[[test]]
+name = "main"
+path = "tests/main.rs"
+harness = false
+
+[lints]
+workspace = true

@@ -1,0 +1,138 @@
+[package]
+name = "record-processor"
+version = "0.1.0"
+categories.workspace = true
+description.workspace = true
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+cli = { workspace = true }
+
+[lints]
+workspace = true
+
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.dependencies]
+anyhow = "=1.0.104"
+cli = { path = "crates/cli" }
+domain = { path = "crates/domain" }
+compio = "=0.19.2"
+csv = "=1.4.0"
+pico-args = "=0.5.0"
+rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "f6b0d3a35b237d02f91088f596091f5490ea8107", features = ["runtime-futures", "runtime-compio", "common"] }
+rust_decimal = { version = "=1.43.0", default-features = false, features = ["serde-str"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+service = { path = "crates/service" }
+storage = { path = "crates/storage" }
+thiserror = "=2.0.21"
+transport = { path = "crates/transport" }
+
+[workspace.package]
+categories = ["command-line-utilities", "finance"]
+description = "Toy payments engine that streams CSV transactions and reports client account balances"
+edition = "2024"
+homepage = "https://github.com/mykytanikitenko/record-processor-rs"
+keywords = ["csv", "payments", "transactions"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/mykytanikitenko/record-processor-rs"
+
+# Rust lints
+# Strategy: deny all warnings + edition groups + future-incompatible, then
+# explicitly elevate allow-by-default lints we care about.
+[workspace.lints.rust]
+warnings = "deny"
+
+# Lint groups
+future_incompatible = { level = "deny", priority = -1 }
+keyword_idents = { level = "deny", priority = -1 }
+let_underscore = { level = "deny", priority = -1 }
+nonstandard_style = { level = "deny", priority = -1 }
+refining_impl_trait = { level = "deny", priority = -1 }
+rust_2018_idioms = { level = "deny", priority = -1 }
+rust_2021_compatibility = { level = "deny", priority = -1 }
+rust_2024_compatibility = { level = "deny", priority = -1 }
+unused = { level = "deny", priority = -1 }
+
+unsafe_code = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rudzio_test)'] }
+
+# Allow-by-default lints elevated to deny
+macro_use_extern_crate = "deny"
+meta_variable_misuse = "deny"
+missing_copy_implementations = "deny"
+missing_debug_implementations = "deny"
+non_ascii_idents = "deny"
+redundant_imports = "deny"
+redundant_lifetimes = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unit_bindings = "deny"
+unreachable_pub = "deny"
+unused_import_braces = "deny"
+unused_lifetimes = "deny"
+unused_qualifications = "deny"
+unused_results = "deny"
+
+# Intentionally allowed
+single_use_lifetimes = "allow"
+variant_size_differences = "allow"
+
+# Clippy lints
+# Strategy: deny ALL groups including restriction, then allow the handful
+# of restriction lints that are too noisy or conflict with project style.
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+complexity = { level = "deny", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+restriction = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+
+# Overrides — allow lints that conflict with project style or are too noisy
+blanket_clippy_restriction_lints = { level = "allow", priority = 1 }
+error_impl_error = { level = "allow", priority = 1 }                  # thiserror derives std::error::Error; naming type Error is idiomatic
+field_scoped_visibility_modifiers = { level = "allow", priority = 1 }
+implicit_return = { level = "allow", priority = 1 }
+missing_trait_methods = { level = "allow", priority = 1 }             # absurd for std traits like Iterator with 80+ default methods
+mod_module_files = { level = "allow", priority = 1 }
+multiple_inherent_impl = { level = "allow", priority = 1 }            # split impl blocks across files for readability
+pattern_type_mismatch = { level = "allow", priority = 1 }
+pub_use = { level = "allow", priority = 1 }
+pub_with_shorthand = { level = "allow", priority = 1 }
+question_mark_used = { level = "allow", priority = 1 }
+redundant_pub_crate = { level = "allow", priority = 1 }               # conflicts with unreachable_pub for private modules
+redundant_type_annotations = { level = "allow", priority = 1 }
+rest_pattern_accessible_field = { level = "allow", priority = 1 }     # new in 1.99.0; directly contradicts unneeded_field_pattern for "ignore all fields" match arms
+semicolon_outside_block = { level = "allow", priority = 1 }
+std_instead_of_alloc = { level = "allow", priority = 1 }              # serde derive generates std references
+std_instead_of_core = { level = "allow", priority = 1 }               # serde derive generates std references
+separated_literal_suffix = { level = "allow", priority = 1 }          # conflicts with unseparated_literal_suffix; we want 10_u32 style
+single_call_fn = { level = "allow", priority = 1 }
+tests_outside_test_module = { level = "allow", priority = 1 }         # false positive for integration tests in tests/
+future_not_send = { level = "allow", priority = 1 }                   # compio is thread-per-core; futures are intentionally !Send
+multiple_crate_versions = { level = "allow", priority = 1 }           # transitive dependencies may pull differing major versions of the same crate
+needless_pass_by_ref_mut = { level = "allow", priority = 1 }          # trait-mandated `&mut self` receivers are common in async runtime callbacks
+too_many_lines = { level = "allow", priority = 1 }                    # exhaustive match dispatch is inherently long
+unused_async = { level = "allow", priority = 1 }                      # async signatures are dictated by runtime traits even without await points
+unused_async_trait_impl = { level = "allow", priority = 1 }           # async signatures are dictated by runtime traits even without await points
+unused_self = { level = "allow", priority = 1 }                       # trait-mandated method receivers may not touch self
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

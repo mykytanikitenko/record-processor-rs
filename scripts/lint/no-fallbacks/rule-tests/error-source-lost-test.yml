@@ -1,0 +1,12 @@
+id: error-source-lost
+valid:
+  - "let e = r.map_err(|e| e.context(\"x\"))?;"
+  - "let v = r?;"
+invalid:
+  - "r.map_err(|_| \"boom\")"
+  - "if let Err(_) = r {}"
+  - "let Err(_) = r;"
+  - "let _ = r;"
+  - "let _: u8 = r;"
+  - "_ = r;"
+  - "std::process::exit(1)"

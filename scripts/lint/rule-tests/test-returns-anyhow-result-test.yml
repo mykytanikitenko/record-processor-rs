@@ -1,0 +1,48 @@
+id: test-returns-anyhow-result
+valid:
+  - |
+    #[test]
+    fn returns_result() -> anyhow::Result<()> {
+        Ok(())
+    }
+  - |
+    #[compio::test]
+    async fn async_returns_result() -> anyhow::Result<()> {
+        Ok(())
+    }
+  - |
+    #[test]
+    fn returns_generic_result() -> anyhow::Result<Vec<u8>> {
+        Ok(Vec::new())
+    }
+  - |
+    fn not_a_test() {}
+  - |
+    async fn not_a_test_async() -> String {
+        String::new()
+    }
+  - |
+    #[test]
+    #[ignore]
+    fn ignored_returns_result() -> anyhow::Result<()> {
+        Ok(())
+    }
+invalid:
+  - |
+    #[test]
+    fn no_return_type() {}
+  - |
+    #[compio::test]
+    async fn async_no_return_type() {}
+  - |
+    #[test]
+    fn wrong_return_type() -> std::io::Result<()> {
+        Ok(())
+    }
+  - |
+    #[tokio::test]
+    async fn tokio_no_return() {}
+  - |
+    #[test]
+    #[ignore]
+    fn ignored_no_return() {}

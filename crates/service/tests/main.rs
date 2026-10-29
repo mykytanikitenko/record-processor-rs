@@ -1,0 +1,2 @@
+#[rudzio::main]
+fn main() {}

@@ -1,0 +1,14 @@
+id: no-cloning
+valid:
+  - "let y = &x;"
+  - "let s: &str = &owned_string;"
+invalid:
+  - "a.to_owned()"
+  - "a.to_string()"
+  - "a.clone()"
+  - "ToOwned::to_owned(a)"
+  - "ToString::to_string(a)"
+  - "Clone::clone(&a)"
+  - "x.map(ToOwned::to_owned)"
+  - "x.map(ToString::to_string)"
+  - "String::clone(&s)"

@@ -1,0 +1,7 @@
+id: non-rudzio-test-attribute
+language: Rust
+severity: error
+message: "Non-rudzio test registration attributes are forbidden — the workspace has migrated to rudzio. Replace `#[test]`, `#[tokio::test]`, `#[compio::test]`, `#[async_std::test]`, `#[rstest]`, `#[test_case]`, or `#[bench]` with `#[rudzio::test]` inside a `#[rudzio::suite(...)]` module. `#[cfg(test)]`/`#[cfg(any(test, rudzio_test))]` gates are allowed and not flagged."
+rule:
+  kind: attribute_item
+  regex: '^#\[(test|compio::test|tokio::test|async_std::test|rstest|test_case|bench)\b'

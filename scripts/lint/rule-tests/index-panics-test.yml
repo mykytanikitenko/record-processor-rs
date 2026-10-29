@@ -1,0 +1,11 @@
+id: index-panics
+valid:
+  - "let arr: [i32; 3] = [1, 2, 3];"
+  - "let lit = [1, 2, 3];"
+  - "#[allow(dead_code)]"
+  - "let x = a.get(0);"
+invalid:
+  - "let x = arr[0];"
+  - "let y = arr[1..];"
+  - "let z = &arr[..2];"
+  - "let m = map[&key];"

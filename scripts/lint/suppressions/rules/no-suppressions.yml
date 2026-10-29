@@ -1,0 +1,16 @@
+id: no-suppressions
+language: Rust
+severity: error
+message: "Lint suppression via `#[allow(..)]`/`#[expect(..)]` (direct or wrapped in `cfg_attr`) is forbidden. Fix the underlying issue instead of suppressing the lint."
+rule:
+  any:
+    - kind: attribute_item
+      has:
+        kind: identifier
+        regex: '^(allow|expect)$'
+        stopBy: end
+    - kind: inner_attribute_item
+      has:
+        kind: identifier
+        regex: '^(allow|expect)$'
+        stopBy: end
