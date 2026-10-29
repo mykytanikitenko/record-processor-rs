@@ -1,0 +1,3 @@
+description = "Withdrawing the exact available balance reaches zero."
+derivation = "deposit 10.0, withdrawal 10.0 -> available 0.0, total 0.0."
+outcome = "success"

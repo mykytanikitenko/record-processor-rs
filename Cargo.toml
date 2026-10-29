@@ -15,6 +15,19 @@ autotests = false
 cli = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+anyhow.workspace = true
+csv.workspace = true
+rudzio.workspace = true
+rust_decimal.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
+harness = false
+
 [lints]
 workspace = true
 
@@ -37,14 +50,15 @@ rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "f6b0d3a
   "runtime-compio",
   "common",
 ] }
-rust_decimal = { version = "=1.43.0", default-features = false, features = [
-  "serde-str",
-  "std",
-] }
+ rust_decimal = { version = "=1.43.0", default-features = false, features = [
+   "serde-str",
+   "std",
+ ] }
 serde = { version = "=1.0.229", features = ["derive"] }
 service = { path = "crates/service" }
 storage = { path = "crates/storage" }
 thiserror = "=2.0.21"
+toml = "=0.8.23"
 transport = { path = "crates/transport" }
 
 [workspace.package]

@@ -1,0 +1,3 @@
+description = "Leading, trailing, and after-comma whitespace is accepted."
+derivation = "deposit 1.0 -> client 1; deposit 2.5 -> client 2."
+outcome = "success"

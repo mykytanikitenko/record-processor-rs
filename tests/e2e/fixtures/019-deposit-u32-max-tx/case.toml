@@ -1,0 +1,3 @@
+description = "The maximum u32 transaction id (4294967295) is accepted."
+derivation = "deposit 1.0 with tx 4294967295 -> client 1 available 1.0."
+outcome = "success"

@@ -1,0 +1,3 @@
+description = "The maximum u16 client id (65535) is accepted."
+derivation = "deposit 1.0 to client 65535 -> 1.0."
+outcome = "success"

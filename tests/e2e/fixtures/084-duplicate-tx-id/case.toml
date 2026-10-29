@@ -1,0 +1,5 @@
+description = "Two rows reuse the same transaction id."
+derivation = "deposit 10.0 to client 1 (tx 1), then deposit 5.0 to client 2 reusing tx 1. Transaction ids are globally unique per the spec, so reuse is outside it."
+outcome = "pending-decision"
+decision = "duplicate-tx-id"
+question = "When a transaction id is reused by a later row, should the later row be ignored, treated as an error, or applied?"
