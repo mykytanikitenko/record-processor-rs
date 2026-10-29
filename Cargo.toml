@@ -22,19 +22,31 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-anyhow = "=1.0.104"
-cli = { path = "crates/cli" }
-domain = { path = "crates/domain" }
-compio = "=0.19.2"
-csv = "=1.4.0"
-pico-args = "=0.5.0"
-rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "f6b0d3a35b237d02f91088f596091f5490ea8107", features = ["runtime-futures", "runtime-compio", "common"] }
-rust_decimal = { version = "=1.43.0", default-features = false, features = ["serde-str"] }
-serde = { version = "=1.0.229", features = ["derive"] }
-service = { path = "crates/service" }
-storage = { path = "crates/storage" }
-thiserror = "=2.0.21"
-transport = { path = "crates/transport" }
+anyhow = { version = "=1.0.104", default-features = false, features = ["std"] }
+cli = { path = "crates/cli", default-features = false, features = [] }
+csv = { version = "=1.4.0", default-features = false, features = [] }
+domain = { path = "crates/domain", default-features = false, features = [] }
+pico-args = { version = "=0.5.0", default-features = false, features = [] }
+rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "f6b0d3a35b237d02f91088f596091f5490ea8107", default-features = false, features = [
+  "runtime-futures",
+  "runtime-compio",
+  "common",
+] }
+rust_decimal = { version = "=1.43.0", default-features = false, features = [
+  "serde-str",
+  "std",
+] }
+serde = { version = "=1.0.229", default-features = false, features = [
+  "derive",
+  "std",
+] }
+service = { path = "crates/service", default-features = false, features = [] }
+storage = { path = "crates/storage", default-features = false, features = [] }
+thiserror = { version = "=2.0.21", default-features = false, features = [
+  "std",
+] }
+transport = { path = "crates/transport", default-features = false, features = [
+] }
 
 [workspace.package]
 categories = ["command-line-utilities", "finance"]
