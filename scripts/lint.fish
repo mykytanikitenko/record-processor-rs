@@ -144,6 +144,11 @@ set -l nofallbacks_status 1
 fish "$_root/scripts/lint/no-fallbacks.fish" "$_root/tmp/no-fallbacks.ndjson"
 set nofallbacks_status $status
 
+# (l.1) shared-error-types lint
+set -l seterr_status 1
+fish "$_root/scripts/lint/shared-error-types.fish" "$_root/tmp/shared-error-types.ndjson"
+set seterr_status $status
+
 # (m) module-only lint
 set -l moduleonly_status 1
 fish "$_root/scripts/lint/module-only.fish" "$_root/tmp/module-only.ndjson"
@@ -175,6 +180,8 @@ fish "$_root/scripts/lint/no-banner-comments.fish" "$_root/tmp/no-banner-comment
 set nobanner_status $status
 fish "$_root/scripts/lint/no-fallbacks.fish" "$_root/tmp/no-fallbacks.ndjson" >/dev/null 2>&1
 set nofallbacks_status $status
+fish "$_root/scripts/lint/shared-error-types.fish" "$_root/tmp/shared-error-types.ndjson" >/dev/null 2>&1
+set seterr_status $status
 fish "$_root/scripts/lint/module-only.fish" "$_root/tmp/module-only.ndjson" >/dev/null 2>&1
 set moduleonly_status $status
 fish "$_root/scripts/lint/no-new-get.fish" "$_root/tmp/no-new-get.ndjson" >/dev/null 2>&1

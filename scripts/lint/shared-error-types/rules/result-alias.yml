@@ -1,0 +1,13 @@
+id: result-alias
+language: Rust
+severity: info
+message: "a `type Result<…> = …Result<…, E>` alias that fixes the error type"
+rule:
+  all:
+    - kind: type_item
+    - has:
+        field: name
+        regex: '^Result$'
+    - has:
+        field: type
+        regex: '[Rr]esult\s*<'

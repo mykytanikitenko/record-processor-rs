@@ -1,0 +1,17 @@
+id: error-slot-assoc
+valid:
+  - "type Error = FooErr;"
+  - "type Other = FooErr;"
+  - |
+    impl Thing {
+        type Other = FooErr;
+    }
+invalid:
+  - |
+    impl Thing {
+        type Error = FooErr;
+    }
+  - |
+    impl TryFrom<u8> for Thing {
+        type Error = TryFromErr;
+    }

@@ -23,6 +23,7 @@ set -a sources non-rudzio tmp/non-rudzio.ndjson
 set -a sources no-suppressions tmp/no-suppressions.ndjson
 set -a sources no-banner-comments tmp/no-banner-comments.ndjson
 set -a sources no-fallbacks tmp/no-fallbacks.ndjson
+set -a sources shared-error-types tmp/shared-error-types.ndjson
 set -a sources module-only tmp/module-only.ndjson
 set -a sources no-new-get tmp/no-new-get.ndjson
 set -a sources no-static-lifetime tmp/no-static-lifetime.ndjson

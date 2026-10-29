@@ -1,0 +1,25 @@
+id: error-slot-result
+language: Rust
+severity: info
+message: "error slot: a fallible function returning `Result<T, E>`"
+rule:
+  all:
+    - any:
+        - kind: function_item
+        - kind: function_signature_item
+    - has:
+        field: return_type
+        regex: '[Rr]esult\s*<'
+    # Exclude test functions (they carry a `#[test]`/`#[tokio::test]`/… attribute).
+    # `#[cfg(test)]` modules are excluded separately by the fish wrapper, which
+    # subtracts the byte ranges produced by the `test-module` rule — structural
+    # `inside: kind: mod_item` matching is unreliable here because tree-sitter
+    # parses `Result<…>` return types with an error node that leaks into other
+    # kind matchers.
+    - not:
+        follows:
+          kind: attribute_item
+          regex: '#\[(test|compio::test|tokio::test|rudzio::test|rstest|test_case)\b'
+          stopBy:
+            not:
+              kind: attribute_item
