@@ -34,7 +34,8 @@ Output columns:
 | `total` | `available + held` |
 | `locked` | account frozen |
 
-Amounts are written to 4 decimal places.
+Amounts are written in their shortest decimal form (no fixed four-place
+padding): `1.5`, not `1.5000`.
 
 ## Approach
 
@@ -119,8 +120,25 @@ ones:
 - `Eof` is a stream-end signal emitted by the transport, not a CSV row; a
   literal `eof` row is rejected during deserialization.
 - Output balances derive `total` from `available + held` in the constructor, so
-  the invariant cannot be broken. Output decimal formatting (fixed four places
-  vs. minimal) is pending; decimals serialize as-is for now.
+  the invariant cannot be broken. Output decimal formatting uses the shortest
+  representation (no fixed four-place padding), as recorded under
+  [Decisions](#decisions).
+
+## Decisions
+
+Recorded decisions, each with the reasoning that settled it:
+
+- **Malformed input rows abort the run.** A row that cannot be converted to a
+  transaction — an unknown `type`, a missing or unexpected amount, a
+  non-numeric or out-of-range client or transaction id, or an invalid amount —
+  fails the whole run with a non-zero exit, an error on stderr, and nothing on
+  stdout. This is bank-like fail-loud behaviour: corrupt partner data must not
+  be silently skipped, because skipping a row would silently change the
+  reported balances.
+- **Output decimals use the shortest representation.** Balances are written
+  without fixed four-place padding (`1.5`, not `1.5000`). The spec does not
+  require a particular decimal display for round values, and the shortest form
+  is unambiguous.
 
 ## Status
 
@@ -156,10 +174,9 @@ case the spec leaves open.
 - **success** — the binary exits zero with empty stderr; stdout is parsed into
   typed rows (`u16`, `Decimal`, `Decimal`, `Decimal`, `bool`) and compared for
   whole-vector equality. Decimal equality is value-based, so `1.5` equals
-  `1.5000`; the still-open output-format decision (always 4dp vs minimal) will
-  tighten this to exact text once chosen.
-- **error** — the binary exits non-zero with empty stdout. (Reserved; no
-  fixture exercises it until the malformed-row policy is chosen.)
+  `1.5000`.
+- **error** — the binary exits non-zero with empty stdout; exercised by the
+  malformed-row cases (`061`–`071`).
 - **pending-decision** — the test fails loudly with
   `pending decision <id>: <question>`, never skipped and never passing, until
   the policy is chosen.
@@ -172,7 +189,7 @@ guessed at. See each `case.toml` for the precise question; the ids are
 `dispute-insufficient-available`, `locked-account-operations`,
 `mismatched-client-reference`, `duplicate-tx-id`, `redispute-after-resolve`,
 `dispute-after-chargeback`, `double-dispute`, `dispute-failed-withdrawal`,
-`ignored-row-client-output`, and `malformed-row-policy`.
+and `ignored-row-client-output`.
 
 ## License
 

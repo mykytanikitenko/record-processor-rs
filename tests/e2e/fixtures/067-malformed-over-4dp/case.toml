@@ -1,5 +1,3 @@
 description = "An amount with more than four decimal places."
-derivation = "The row cannot be classified; its handling is governed by the malformed-row policy."
-outcome = "pending-decision"
-decision = "malformed-row-policy"
-question = "How should a malformed input row be handled — abort the entire run with a non-zero exit, or skip the offending row and continue (reporting it on stderr)?"
+derivation = "The amount 1.23456 has more than four decimal places, so it is rejected; the malformed-row policy aborts the run with a non-zero exit and empty stdout."
+outcome = "error"
