@@ -3,7 +3,7 @@
 # no-suppressions + no-banner-comments + workspace-deps + yaml-lint + recipe
 # lint + non-rudzio + no-fallbacks + module-only + no-new-get +
 # no-static-lifetime + cargo-audit + cargo-deny + cargo-machete +
-# nix-provenance. Rust findings are annotated in-place with
+# nix-provenance + forbidden-word. Rust findings are annotated in-place with
 # TODO(lint/<rule>) markers, then a TODO-precedence pass reports acknowledged
 # violations through the todo-comments rule. Fails while any finding remains.
 set -l _script_dir (status dirname)
@@ -185,6 +185,13 @@ set -l nixprov_status 1
 fish "$_root/scripts/lint/nix-provenance.fish" "$_root/tmp/nix-provenance.ndjson"
 set nixprov_status $status
 
+# (o.5) forbidden-word lint (non-Rust: content + commit-history scan). Findings
+#       are reported directly here; unlike the Rust sub-lints they are not
+#       annotated in-place (the scan covers non-Rust files too).
+set -l forbiddenword_status 1
+fish "$_root/scripts/lint/forbidden-word.fish" "$_root/tmp/forbidden-word.ndjson"
+set forbiddenword_status $status
+
 # (p) Annotate Rust findings in-place (idempotent; mutates crates/ and src/). Runs by
 #     default on every `just lint` so violations are impossible to miss.
 fish "$_root/scripts/lint/annotate.fish"
@@ -242,6 +249,8 @@ set -l s_machete FAIL
 test $machete_status -eq 0; and set s_machete PASS
 set -l s_nixprov FAIL
 test $nixprov_status -eq 0; and set s_nixprov PASS
+set -l s_forbiddenword FAIL
+test $forbiddenword_status -eq 0; and set s_forbiddenword PASS
 
 echo
 printf '%-16s %s\n' sub-lint status
@@ -255,6 +264,7 @@ printf '%-16s %s\n' cargo-audit "$s_audit"
 printf '%-16s %s\n' cargo-deny "$s_deny"
 printf '%-16s %s\n' cargo-machete "$s_machete"
 printf '%-16s %s\n' nix-provenance "$s_nixprov"
+printf '%-16s %s\n' forbidden-word "$s_forbiddenword"
 while read -l name st
     printf '%-16s %s\n' "$name" "$st"
 end <"$_root/tmp/todo-precedence.status"
@@ -271,7 +281,7 @@ if test $merged_count -gt 0
 end
 echo
 
-if test $fmt_failed -ne 0; or test $fishsyntax_status -ne 0; or test $nonfish_status -ne 0; or test $yaml_status -ne 0; or test $recipe_status -ne 0; or test $wsdeps_status -ne 0; or test $audit_status -ne 0; or test $deny_status -ne 0; or test $machete_status -ne 0; or test $nixprov_status -ne 0; or test $precedence_status -ne 0
+if test $fmt_failed -ne 0; or test $fishsyntax_status -ne 0; or test $nonfish_status -ne 0; or test $yaml_status -ne 0; or test $recipe_status -ne 0; or test $wsdeps_status -ne 0; or test $audit_status -ne 0; or test $deny_status -ne 0; or test $machete_status -ne 0; or test $nixprov_status -ne 0; or test $forbiddenword_status -ne 0; or test $precedence_status -ne 0
     err "lint failed"
     exit 1
 end
