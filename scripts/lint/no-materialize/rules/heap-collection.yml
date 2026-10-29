@@ -1,0 +1,7 @@
+id: heap-collection
+language: Rust
+severity: info
+message: "heap collection holding a domain type"
+rule:
+  kind: generic_type
+  regex: '^(?:Vec|VecDeque)\s*<|^Box\s*<\s*\['

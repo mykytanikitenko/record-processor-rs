@@ -1,0 +1,22 @@
+id: test-module
+valid:
+  - |
+    mod tests {
+        fn t() -> u8 { 1 }
+    }
+  - |
+    #[cfg(not(test))]
+    mod tests {
+        fn t() -> u8 { 1 }
+    }
+invalid:
+  - |
+    #[cfg(test)]
+    mod tests {
+        fn t() -> u8 { 1 }
+    }
+  - |
+    #[cfg(test)]
+    pub mod tests {
+        fn t() -> u8 { 1 }
+    }

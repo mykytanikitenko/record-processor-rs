@@ -1,0 +1,15 @@
+id: permitted-framer-result
+language: Rust
+severity: info
+message: "permitted `std::io::Result` return type of a fn inside a `Framer` impl"
+rule:
+  all:
+    - kind: scoped_type_identifier
+    - regex: '^std::io::Result$'
+    - inside:
+        kind: function_item
+        stopBy: end
+        inside:
+          kind: impl_item
+          stopBy: end
+          regex: '\bFramer\b'

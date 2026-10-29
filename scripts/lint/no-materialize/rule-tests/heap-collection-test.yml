@@ -1,0 +1,13 @@
+id: heap-collection
+valid:
+  - "let x: u8 = 1;"
+  - "let x: Option<u8> = None;"
+  - "fn f(x: &[u8]) -> &[u8] { x }"
+  - "let x: [u8; 4] = [0; 4];"
+invalid:
+  - "let x: Vec<u8> = todo!();"
+  - "let x: Vec<Transaction> = todo!();"
+  - "let x: Vec<crate::domain::Transaction> = todo!();"
+  - "let x: VecDeque<u8> = todo!();"
+  - "let x: Box<[u8]> = todo!();"
+  - "let x: Box<[Amount]> = todo!();"

@@ -106,9 +106,9 @@ end
 # (g) Justfile recipe lint
 set -l recipe_status 1
 set -l actual (just --dump --dump-format json --unstable | jq -r '.recipes | keys[]' | sort)
-set -l expected build clean fmt lint test
+set -l expected build clean fmt lint lint-no-implicit-alloc lint-no-manual-fmt lint-no-materialize lint-no-std-io test
 if test (string join ' ' $actual) = (string join ' ' $expected)
-    ok "recipe lint passed (build test lint fmt clean)"
+    ok "recipe lint passed"
     set recipe_status 0
 else
     err "recipe lint failed"

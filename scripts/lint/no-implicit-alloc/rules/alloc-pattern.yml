@@ -1,0 +1,26 @@
+id: alloc-pattern
+language: Rust
+severity: info
+message: "implicit heap allocation"
+rule:
+  any:
+    - pattern: "Vec::new($$$)"
+    - pattern: "Vec::with_capacity($$$)"
+    - pattern: "VecDeque::new($$$)"
+    - pattern: "HashMap::new($$$)"
+    - pattern: "BTreeMap::new($$$)"
+    - pattern: "HashSet::new($$$)"
+    - pattern: "BTreeSet::new($$$)"
+    - pattern: "Box::new($$$)"
+    - pattern: "Box::pin($$$)"
+    - pattern: "String::new($$$)"
+    - pattern: "String::from($$$)"
+    - pattern: "String::with_capacity($$$)"
+    - pattern: "Rc::new($$$)"
+    - pattern: "Arc::new($$$)"
+    - pattern: "vec![$$$]"
+    - pattern: "format!($$$)"
+    - kind: field_expression
+      has:
+        field: field
+        regex: '^(collect|to_vec|into_boxed_slice)$'

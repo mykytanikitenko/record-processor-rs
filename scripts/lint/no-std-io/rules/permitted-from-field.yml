@@ -1,0 +1,16 @@
+id: permitted-from-field
+language: Rust
+severity: info
+message: "permitted `#[from] std::io::Error` field of a thiserror enum variant"
+rule:
+  all:
+    - any:
+        - kind: scoped_type_identifier
+        - kind: scoped_identifier
+    - regex: '^std::io::Error$'
+    - follows:
+        kind: attribute_item
+        regex: '^#\[from\]$'
+        stopBy:
+          not:
+            kind: attribute_item
