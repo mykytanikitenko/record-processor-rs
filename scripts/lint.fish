@@ -2,7 +2,8 @@
 # Full lint pipeline: format check + fish syntax + clippy + panic + non-fish +
 # no-suppressions + no-banner-comments + workspace-deps + yaml-lint + recipe
 # lint + non-rudzio + no-fallbacks + module-only + no-new-get +
-# no-static-lifetime. Rust findings are annotated in-place with
+# no-static-lifetime + cargo-audit + cargo-deny + cargo-machete +
+# nix-provenance. Rust findings are annotated in-place with
 # TODO(lint/<rule>) markers, then a TODO-precedence pass reports acknowledged
 # violations through the todo-comments rule. Fails while any finding remains.
 set -l _script_dir (status dirname)
@@ -164,6 +165,26 @@ set -l nostaticlifetime_status 1
 fish "$_root/scripts/lint/no-static-lifetime.fish" "$_root/tmp/no-static-lifetime.ndjson"
 set nostaticlifetime_status $status
 
+# (o.1) cargo-audit (RustSec advisories, strictest deny policy)
+set -l audit_status 1
+fish "$_root/scripts/lint/cargo-audit.fish" "$_root/tmp/cargo-audit.ndjson"
+set audit_status $status
+
+# (o.2) cargo-deny (licenses / bans / sources / advisories)
+set -l deny_status 1
+fish "$_root/scripts/lint/cargo-deny.fish" "$_root/tmp/cargo-deny.ndjson"
+set deny_status $status
+
+# (o.3) cargo-machete (unused dependencies)
+set -l machete_status 1
+fish "$_root/scripts/lint/cargo-machete.fish" "$_root/tmp/cargo-machete.ndjson"
+set machete_status $status
+
+# (o.4) nix-provenance (flake inputs pinned, rudzio rev consistent)
+set -l nixprov_status 1
+fish "$_root/scripts/lint/nix-provenance.fish" "$_root/tmp/nix-provenance.ndjson"
+set nixprov_status $status
+
 # (p) Annotate Rust findings in-place (idempotent; mutates crates/ and src/). Runs by
 #     default on every `just lint` so violations are impossible to miss.
 fish "$_root/scripts/lint/annotate.fish"
@@ -213,6 +234,14 @@ set -l s_recipe FAIL
 test $recipe_status -eq 0; and set s_recipe PASS
 set -l s_wsdeps FAIL
 test $wsdeps_status -eq 0; and set s_wsdeps PASS
+set -l s_audit FAIL
+test $audit_status -eq 0; and set s_audit PASS
+set -l s_deny FAIL
+test $deny_status -eq 0; and set s_deny PASS
+set -l s_machete FAIL
+test $machete_status -eq 0; and set s_machete PASS
+set -l s_nixprov FAIL
+test $nixprov_status -eq 0; and set s_nixprov PASS
 
 echo
 printf '%-16s %s\n' sub-lint status
@@ -222,6 +251,10 @@ printf '%-16s %s\n' non-fish "$s_nonfish"
 printf '%-16s %s\n' yaml-lint "$s_yaml"
 printf '%-16s %s\n' recipe-lint "$s_recipe"
 printf '%-16s %s\n' workspace-deps "$s_wsdeps"
+printf '%-16s %s\n' cargo-audit "$s_audit"
+printf '%-16s %s\n' cargo-deny "$s_deny"
+printf '%-16s %s\n' cargo-machete "$s_machete"
+printf '%-16s %s\n' nix-provenance "$s_nixprov"
 while read -l name st
     printf '%-16s %s\n' "$name" "$st"
 end <"$_root/tmp/todo-precedence.status"
@@ -238,7 +271,7 @@ if test $merged_count -gt 0
 end
 echo
 
-if test $fmt_failed -ne 0; or test $fishsyntax_status -ne 0; or test $nonfish_status -ne 0; or test $yaml_status -ne 0; or test $recipe_status -ne 0; or test $wsdeps_status -ne 0; or test $precedence_status -ne 0
+if test $fmt_failed -ne 0; or test $fishsyntax_status -ne 0; or test $nonfish_status -ne 0; or test $yaml_status -ne 0; or test $recipe_status -ne 0; or test $wsdeps_status -ne 0; or test $audit_status -ne 0; or test $deny_status -ne 0; or test $machete_status -ne 0; or test $nixprov_status -ne 0; or test $precedence_status -ne 0
     err "lint failed"
     exit 1
 end

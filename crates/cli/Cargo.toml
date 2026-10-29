@@ -15,7 +15,6 @@ autotests = false
 compio = { workspace = true }
 pico-args = { workspace = true }
 service = { workspace = true }
-storage = { workspace = true }
 thiserror = { workspace = true }
 transport = { workspace = true }
 

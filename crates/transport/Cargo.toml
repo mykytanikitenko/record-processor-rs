@@ -16,7 +16,6 @@ compio = { workspace = true }
 csv = { workspace = true }
 record-processor-domain = { workspace = true }
 rust_decimal = { workspace = true }
-serde = { workspace = true }
 service = { workspace = true }
 thiserror = { workspace = true }
 

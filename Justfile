@@ -19,7 +19,8 @@ test *args:
 
 # Run the full lint pipeline: format check, fish syntax, clippy, panic
 # patterns, non-fish scripts, yaml lint, recipe names, no-suppressions,
-# no-banner-comments, workspace-deps, non-rudzio, and no-fallbacks.
+# no-banner-comments, workspace-deps, non-rudzio, no-fallbacks, cargo-audit,
+# cargo-deny, and cargo-machete.
 lint *args:
     @fish scripts/lint.fish {{ args }}
 

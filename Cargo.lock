@@ -125,7 +125,6 @@ dependencies = [
  "pico-args",
  "rudzio",
  "service",
- "storage",
  "thiserror",
  "transport",
 ]
@@ -1365,7 +1364,6 @@ dependencies = [
  "record-processor-domain",
  "rudzio",
  "rust_decimal",
- "storage",
  "thiserror",
 ]
 
@@ -1449,9 +1447,7 @@ name = "storage"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "record-processor-domain",
  "rudzio",
- "rust_decimal",
 ]
 
 [[package]]
@@ -1690,7 +1686,6 @@ dependencies = [
  "record-processor-domain",
  "rudzio",
  "rust_decimal",
- "serde",
  "service",
  "thiserror",
 ]

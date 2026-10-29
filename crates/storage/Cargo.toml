@@ -11,10 +11,6 @@ readme.workspace = true
 repository.workspace = true
 autotests = false
 
-[dependencies]
-record-processor-domain = { workspace = true }
-rust_decimal = { workspace = true }
-
 [dev-dependencies]
 anyhow.workspace = true
 rudzio.workspace = true
