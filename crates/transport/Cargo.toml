@@ -12,10 +12,13 @@ repository.workspace = true
 autotests = false
 
 [dependencies]
+compio = { workspace = true }
 csv = { workspace = true }
 domain = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true }
+service = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 anyhow.workspace = true

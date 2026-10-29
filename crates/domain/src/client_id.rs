@@ -1,7 +1,9 @@
 //! Client identifier.
 
 /// A client identifier, shared by the input and output models.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, derive_more::Deref, serde::Serialize)]
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, derive_more::Deref, serde::Serialize,
+)]
 pub struct ClientId(u16);
 
 impl From<u16> for ClientId {
