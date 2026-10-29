@@ -1,0 +1,7 @@
+id: no-manual-fmt
+language: Rust
+severity: error
+message: "hand-written fmt trait impl; use a derive (std derive / derive_more) instead of implementing Display/Debug/… by hand"
+rule:
+  kind: impl_item
+  regex: '(?s)^\s*impl\b.*\b(?:Display|Debug|LowerHex|UpperHex|Binary|Octal|Pointer|LowerExp|UpperExp|Write)\b\s+for\b'

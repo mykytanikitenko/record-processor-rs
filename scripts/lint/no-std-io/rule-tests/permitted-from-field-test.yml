@@ -1,0 +1,14 @@
+id: permitted-from-field
+valid:
+  - "let e: std::io::Error = todo!();"
+  - "enum E { Io(std::io::Error) }"
+  - |
+    enum E {
+        #[error("io")]
+        Io(std::io::Error),
+    }
+invalid:
+  - |
+    enum E {
+        Io(#[from] std::io::Error),
+    }

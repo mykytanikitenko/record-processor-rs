@@ -1,0 +1,16 @@
+id: permitted-framer-result
+valid:
+  - "fn plain() -> std::io::Result<()> { Ok(()) }"
+  - |
+    trait Other {}
+    struct X;
+    impl Other for X {
+        fn f(&self) -> std::io::Result<()> { todo!() }
+    }
+invalid:
+  - |
+    trait Framer<T> {}
+    struct X;
+    impl Framer<u8> for X {
+        fn extract(&self) -> std::io::Result<Vec<u8>> { todo!() }
+    }

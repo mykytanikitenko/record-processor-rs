@@ -1,0 +1,18 @@
+id: std-io-usage
+valid:
+  - "let x: usize = 1;"
+  - "use std::collections::HashMap;"
+  - "use std::path::Path;"
+  - "let _: crate::io::Thing = todo!();"
+  - "let _ = some_io::read();"
+invalid:
+  - "use std::io;"
+  - "use std::io::Result;"
+  - "use std::io::{self, Read};"
+  - "let e: std::io::Error = todo!();"
+  - "let r: std::io::Result<()> = todo!();"
+  - "let _ = std::io::Cursor::new(b);"
+  - "let _ = io::Error::new(io::ErrorKind::Other, \"x\");"
+  - "let _s: compio::io::compat::SyncStream = todo!();"
+  - "let _s: SyncStream = todo!();"
+  - "let _s = SyncStream::new(s);"

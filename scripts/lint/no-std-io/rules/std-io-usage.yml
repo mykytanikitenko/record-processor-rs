@@ -1,0 +1,24 @@
+id: std-io-usage
+language: Rust
+severity: info
+message: "std::io / SyncStream usage"
+rule:
+  any:
+    - kind: use_declaration
+      regex: 'std::io'
+    - kind: scoped_identifier
+      regex: '^(std::io::[A-Z][A-Za-z0-9_]*|compio::io::compat::SyncStream|io::[A-Z][A-Za-z0-9_]*)$'
+      not:
+        inside:
+          kind: use_declaration
+          stopBy: end
+    - kind: scoped_type_identifier
+      regex: '^(std::io::[A-Z][A-Za-z0-9_]*|compio::io::compat::SyncStream|io::[A-Z][A-Za-z0-9_]*)$'
+      not:
+        inside:
+          kind: use_declaration
+          stopBy: end
+    - kind: type_identifier
+      regex: '^SyncStream$'
+    - kind: identifier
+      regex: '^SyncStream$'
