@@ -1,0 +1,48 @@
+id: module-only
+language: Rust
+severity: error
+message: "lib.rs and mod.rs hold module wiring only; move implementation into a dedicated module file"
+files:
+  - "**/lib.rs"
+  - "**/mod.rs"
+rule:
+  all:
+    - inside:
+        kind: source_file
+        stopBy: neighbor
+    - any:
+        - kind: associated_type
+        - kind: attribute_item
+        - kind: const_item
+        - kind: empty_statement
+        - kind: enum_item
+        - kind: extern_crate_declaration
+        - kind: foreign_mod_item
+        - kind: function_item
+        - kind: function_signature_item
+        - kind: impl_item
+        - kind: inner_attribute_item
+        - kind: let_declaration
+        - kind: macro_definition
+        - kind: macro_invocation
+        - kind: mod_item
+        - kind: static_item
+        - kind: struct_item
+        - kind: trait_item
+        - kind: type_item
+        - kind: union_item
+        - kind: use_declaration
+        - kind: expression_statement
+    - not:
+        any:
+          - kind: use_declaration
+          - kind: attribute_item
+          - kind: inner_attribute_item
+          - kind: line_comment
+          - kind: block_comment
+          - kind: extern_crate_declaration
+          - all:
+              - kind: mod_item
+              - not:
+                  has:
+                    kind: declaration_list
