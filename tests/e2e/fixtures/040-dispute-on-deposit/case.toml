@@ -1,0 +1,3 @@
+description = "Disputing a deposit moves its amount from available to held."
+derivation = "deposit 10.0, dispute tx 1 -> available 0.0, held 10.0, total 10.0."
+outcome = "success"

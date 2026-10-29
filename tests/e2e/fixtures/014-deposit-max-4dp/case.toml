@@ -1,0 +1,3 @@
+description = "A deposit at the maximum four-decimal precision."
+derivation = "deposit 1.2345 -> available 1.2345, total 1.2345."
+outcome = "success"

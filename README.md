@@ -117,6 +117,52 @@ ones:
 Scaffold only. The engine is not implemented; `just test` currently fails
 because there are no tests yet, so the coverage gate has no data.
 
+## End-to-end tests
+
+The root package carries a `rudzio` integration-test target (`tests/e2e`,
+declared as `[[test]] name = "e2e"` with `harness = false`). Each test drives
+the compiled binary over a fixture's `input.csv` and checks stdout against the
+case's expected output.
+
+### Fixture corpus
+
+`tests/e2e/fixtures/<NNN-name>/` holds one case per directory:
+
+- `input.csv` — the transaction stream fed to the binary as its sole argument.
+- `expected.csv` — the expected account output, present for success cases.
+- `case.toml` — metadata: `description`, `derivation` (step-by-step
+  arithmetic), `outcome` (`success`, `error`, or `pending-decision`), plus
+  `decision` and `question` for pending-decision cases.
+
+The corpus is systematic, covering transaction type × account/tx state × edge
+condition: the spec example verbatim, deposit/withdrawal/dispute/resolve/
+chargeback flows, boundary ids (`u16`/`u32` maximums and zero), whitespace and
+decimal precision, large values, header-only input, malformed rows, and every
+case the spec leaves open.
+
+### Outcome handling
+
+- **success** — the binary exits zero with empty stderr; stdout is parsed into
+  typed rows (`u16`, `Decimal`, `Decimal`, `Decimal`, `bool`) and compared for
+  whole-vector equality. Decimal equality is value-based, so `1.5` equals
+  `1.5000`; the still-open output-format decision (always 4dp vs minimal) will
+  tighten this to exact text once chosen.
+- **error** — the binary exits non-zero with empty stdout. (Reserved; no
+  fixture exercises it until the malformed-row policy is chosen.)
+- **pending-decision** — the test fails loudly with
+  `pending decision <id>: <question>`, never skipped and never passing, until
+  the policy is chosen.
+
+### Open decisions
+
+Cases the spec does not decide are recorded as pending decisions rather than
+guessed at. See each `case.toml` for the precise question; the ids are
+`failed-withdrawal-new-client`, `dispute-withdrawal`,
+`dispute-insufficient-available`, `locked-account-operations`,
+`mismatched-client-reference`, `duplicate-tx-id`, `redispute-after-resolve`,
+`dispute-after-chargeback`, `double-dispute`, `dispute-failed-withdrawal`,
+`ignored-row-client-output`, and `malformed-row-policy`.
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

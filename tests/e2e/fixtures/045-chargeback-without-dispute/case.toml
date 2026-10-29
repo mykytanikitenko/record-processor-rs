@@ -1,0 +1,3 @@
+description = "A chargeback for a transaction not under dispute is ignored."
+derivation = "deposit 10.0, chargeback tx 1 (not disputed) ignored -> available 10.0."
+outcome = "success"

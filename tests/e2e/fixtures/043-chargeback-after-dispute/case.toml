@@ -1,0 +1,3 @@
+description = "A chargeback finalizes the dispute, drains held and total, and locks the account."
+derivation = "deposit 10.0, dispute -> held 10.0, chargeback -> held 0.0, total 0.0, locked true."
+outcome = "success"

@@ -1,0 +1,5 @@
+description = "Clients appear only in rows that reference an unknown transaction and are ignored."
+derivation = "deposit 10.0 -> client 1. Clients 2, 3, 4 appear only in ignored dispute/resolve/chargeback rows. Whether they appear as zero rows is undecided."
+outcome = "pending-decision"
+decision = "ignored-row-client-output"
+question = "When a client appears only in rows that are ignored (a dispute/resolve/chargeback of an unknown transaction), should that client appear as a zero-balance row in the output, or be omitted?"

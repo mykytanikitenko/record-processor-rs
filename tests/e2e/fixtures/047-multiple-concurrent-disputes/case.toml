@@ -1,0 +1,3 @@
+description = "Multiple concurrent disputes hold the sum of their amounts."
+derivation = "deposit 10.0 + 20.0 -> total 30.0; dispute both -> held 30.0, available 0.0."
+outcome = "success"

@@ -14,6 +14,19 @@ autotests = false
 [dependencies]
 cli = { workspace = true }
 
+[dev-dependencies]
+anyhow.workspace = true
+csv.workspace = true
+rudzio.workspace = true
+rust_decimal.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
+harness = false
+
 [lints]
 workspace = true
 
@@ -28,12 +41,19 @@ domain = { path = "crates/domain" }
 compio = "=0.19.2"
 csv = "=1.4.0"
 pico-args = "=0.5.0"
-rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "f6b0d3a35b237d02f91088f596091f5490ea8107", features = ["runtime-futures", "runtime-compio", "common"] }
-rust_decimal = { version = "=1.43.0", default-features = false, features = ["serde-str"] }
+rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "f6b0d3a35b237d02f91088f596091f5490ea8107", features = [
+  "runtime-futures",
+  "runtime-compio",
+  "common",
+] }
+rust_decimal = { version = "=1.43.0", default-features = false, features = [
+  "serde-str",
+] }
 serde = { version = "=1.0.229", features = ["derive"] }
 service = { path = "crates/service" }
 storage = { path = "crates/storage" }
 thiserror = "=2.0.21"
+toml = "=0.8.23"
 transport = { path = "crates/transport" }
 
 [workspace.package]

@@ -1,0 +1,5 @@
+description = "A transaction is disputed again after its dispute was resolved."
+derivation = "deposit 10.0, dispute -> held 10.0, resolve -> held 0.0. A second dispute of tx 1 has no spec-defined effect."
+outcome = "pending-decision"
+decision = "redispute-after-resolve"
+question = "After a dispute has been resolved, can the same transaction be disputed again?"

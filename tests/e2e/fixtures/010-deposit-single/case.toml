@@ -1,0 +1,3 @@
+description = "A single deposit credits the client."
+derivation = "deposit 1.0 -> available 1.0, held 0.0, total 1.0, locked false."
+outcome = "success"

@@ -1,0 +1,5 @@
+description = "A row whose type column is not one of the known transaction types."
+derivation = "The row cannot be classified; its handling is governed by the malformed-row policy."
+outcome = "pending-decision"
+decision = "malformed-row-policy"
+question = "How should a malformed input row be handled — abort the entire run with a non-zero exit, or skip the offending row and continue (reporting it on stderr)?"
