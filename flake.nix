@@ -83,6 +83,12 @@
             # Panic-pattern linter (structural matching, never regex)
             pkgs.ast-grep # ast-grep CLI
             pkgs.fish # fish + fish_indent
+
+            # Supply-chain checks (advisories, licenses/bans/sources, unused
+            # deps) — all from the pinned flake so results are reproducible.
+            pkgs.cargo-audit # RustSec advisories
+            pkgs.cargo-deny # licenses / bans / sources
+            pkgs.cargo-machete # unused dependencies
           ];
 
           shellHook = ''
@@ -97,7 +103,7 @@
             echo "record-processor — dev shell"
             echo "  just build   — cargo build"
             echo "  just test    — run all tests via the shared cargo-rudzio runner (--html/--threshold add coverage)"
-            echo "  just lint    — fmt-check + fish-syntax + clippy + panic + non-fish + yaml-lint + recipe + no-suppressions + no-banner-comments + workspace-deps + non-rudzio"
+            echo "  just lint    — fmt-check + fish-syntax + clippy + panic + non-fish + yaml-lint + recipe + no-suppressions + no-banner-comments + workspace-deps + non-rudzio + cargo-audit + cargo-deny + cargo-machete"
             echo "  just fmt     — apply all formatters"
             echo "  just clean   — remove build artifacts"
           '';
