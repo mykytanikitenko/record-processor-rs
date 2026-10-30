@@ -1,16 +1,14 @@
-//! The engine's `serve` implementation, decomposed from the trait method.
-//!
-//! Contracts only: no business logic is implemented yet, so serving always
+//! The engine's `serve` implementation; no business logic yet, so serving
 //! fails with [`EngineError::Unimplemented`].
 
+use storage::{DedupIndex, EndOfInput, EventQueue, KvState};
 use tokio_util::sync::CancellationToken;
 
-use crate::balance_stream::Balances;
+use crate::balance_stream::RealBalances;
 use crate::service::Engine;
 use crate::transaction_stream::TransactionStream;
 
-/// Failure to serve a transaction stream (the engine's own implementation
-/// error, before it is wrapped by [`crate::service::ServeError`]).
+/// Failure inside the engine's serve implementation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum EngineError {
@@ -19,15 +17,19 @@ pub enum EngineError {
     Unimplemented,
 }
 
-impl Engine {
-    /// Serve `input`, producing a lazy balance stream.
-    ///
-    /// A contract stub: always fails with [`EngineError::Unimplemented`].
+impl<Q, I, E, K> Engine<Q, I, E, K>
+where
+    Q: EventQueue,
+    I: DedupIndex,
+    E: EndOfInput,
+    K: KvState,
+{
+    /// Serve `input`, producing the lazy balance stream.
     pub(crate) async fn serve_impl<S>(
         self,
         _input: S,
         _cancel: &CancellationToken,
-    ) -> Result<Balances, EngineError>
+    ) -> Result<RealBalances, EngineError>
     where
         S: TransactionStream,
     {
