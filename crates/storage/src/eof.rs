@@ -10,7 +10,6 @@ pub enum EndOfInputError {
 }
 
 /// A one-shot signal that the input stream has been fully consumed.
-#[mockall::automock(type Error = EndOfInputError;)]
 pub trait EndOfInput {
     /// The error produced by the signal.
     type Error: core::fmt::Debug + core::fmt::Display;
