@@ -1,0 +1,14 @@
+id: tokio-path
+language: Rust
+severity: error
+message: "forbidden `tokio::` path; compio is the project's only runtime — use `compio::runtime::spawn`, `compio::signal`, `compio::time`, etc. The sole permitted Tokio-family API is `tokio_util`'s `CancellationToken`/`TaskTracker` (via `rudzio::tokio_util`); every `tokio::` spawn/runtime/attribute/macro/module path is rejected."
+rule:
+  any:
+    - kind: use_declaration
+      regex: '\btokio::'
+    - kind: scoped_identifier
+      regex: '^tokio::'
+      not:
+        inside:
+          kind: use_declaration
+          stopBy: end

@@ -1,0 +1,24 @@
+id: tokio-tracker-spawn
+language: Rust
+valid:
+  - "tracker.track_future(async {})"
+  - "tracker.close()"
+  - "tracker.wait().await"
+  - "token.cancelled().await"
+  - "token.child_token()"
+  - "TaskTracker::new()"
+  - "TaskTracker::close()"
+  - "compio::runtime::spawn(tracker.track_future(async {}))"
+  - "compio::process::Command::new(\"x\").spawn()"
+  - "cmd.spawn()"
+  - "compio::process::Command::new(\"x\").stdin(Stdio::piped()).spawn()"
+invalid:
+  - "tracker.spawn(async {})"
+  - "tracker.spawn_blocking(|| {})"
+  - "tracker.spawn_local(async {})"
+  - "self.tracker.spawn(async {})"
+  - "foo_tracker.spawn(async {})"
+  - "TaskTracker::spawn(async {})"
+  - "TaskTracker::spawn_blocking(|| {})"
+  - "tokio_util::task::TaskTracker::spawn(async {})"
+  - "rudzio::tokio_util::task::TaskTracker::spawn(async {})"

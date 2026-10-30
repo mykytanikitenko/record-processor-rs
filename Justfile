@@ -1,8 +1,9 @@
 # record-processor — Task Runner
 # The core recipes (build, test, lint, fmt, clean) plus one per Rust sub-lint
 # (lint-no-manual-fmt, lint-no-std-io, lint-no-implicit-alloc,
-# lint-no-materialize). Each is a thin wrapper over scripts/<name>.fish, which
-# auto-enters the nix dev shell when run outside of one.
+# lint-no-materialize, lint-no-tokio-runtime). Each is a thin wrapper over
+# scripts/<name>.fish, which auto-enters the nix dev shell when run outside of
+# one.
 
 set shell := ["fish", "-c"]
 
@@ -39,6 +40,10 @@ lint-no-implicit-alloc:
 # Run the no-materialize sub-lint in isolation.
 lint-no-materialize:
     @fish scripts/lint/no-materialize.fish
+
+# Run the no-tokio-runtime sub-lint in isolation.
+lint-no-tokio-runtime:
+    @fish scripts/lint/no-tokio-runtime.fish
 
 # Apply all formatters (Rust, TOML, Markdown, Nix, Justfile).
 fmt:
