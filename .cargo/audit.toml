@@ -1,8 +1,7 @@
 # cargo-audit configuration for the record-processor workspace.
 #
-# WHY RUSTSEC-2024-0436 is ignored: `paste` (unmaintained) is pulled in
-# transitively via compio-driver <- rudzio; RustSec reports "No safe upgrade is
-# available." The operator will bump rudzio (dropping the compio-driver/paste
-# subtree), at which point this ignore must be removed.
+# No advisories are currently ignored. The previous RUSTSEC-2024-0436
+# (`paste` unmaintained) ignore was removed after the rudzio bump dropped the
+# compio-driver/paste subtree.
 [advisories]
-ignore = ["RUSTSEC-2024-0436"]
+ignore = []

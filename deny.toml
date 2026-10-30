@@ -1,10 +1,9 @@
 # cargo-deny configuration for the record-processor workspace.
 #
 # All four checks are enabled and set to the strictest level. Every finding is
-# a hard failure, with exactly two operator-sanctioned exceptions, each carrying
+# a hard failure, with exactly one operator-sanctioned exception, carrying
 # a `reason` field documenting when to remove it:
 #   * [bans].skip — syn@2.0.119 (duplicate of syn@3), see reason.
-#   * [advisories].ignore — RUSTSEC-2024-0436 (`paste` unmaintained).
 
 [advisories]
 # The advisory DB is fetched from the RustSec git repo and cached under
@@ -16,12 +15,6 @@ db-urls = ["https://github.com/rustsec/advisory-db"]
 unmaintained = "all"
 unsound = "all"
 yanked = "deny"
-# Operator-sanctioned: `paste` is unmaintained, pulled transitively via
-# compio-driver <- rudzio. Operator will bump rudzio (dropping that subtree);
-# remove this then.
-ignore = [
-    { id = "RUSTSEC-2024-0436", reason = "paste unmaintained, transitive via compio-driver <- rudzio; operator will bump rudzio, remove this then" },
-]
 
 [bans]
 # Any crate resolved to more than one version fails the check.
@@ -29,7 +22,7 @@ multiple-versions = "deny"
 highlight = "all"
 # Operator-sanctioned: syn@2 (the 2.0.x line) is a duplicate of syn@3.
 skip = [
-    { crate = "syn@2.0.119", reason = "derive_more-impl (all releases through 2.1.1) requires syn ^2.0.45 and rudzio-macro uses syn 2; remove once derive_more supports syn 3 and rudzio is bumped" },
+    { crate = "syn@2.0.119", reason = "derive_more-impl (through 2.1.1) and rudzio-macro both require syn ^2; remove once both migrate to syn 3" },
 ]
 
 # The payments engine is compio thread-per-core and must not pull a Tokio

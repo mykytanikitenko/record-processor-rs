@@ -57,7 +57,7 @@ futures-util = { version = "=0.3.34", default-features = false, features = ["std
 libc = { version = "=0.2.191", default-features = false, features = [] }
 record-processor-domain = { path = "crates/domain", default-features = false, features = [] }
 pico-args = { version = "=0.5.0", default-features = false, features = [] }
-rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "bb802e66864d39e434bfbaf015696a9c2a2a1662", default-features = false, features = [
+rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "c4bf5a7ea4f1b490e27c3cb1c034505549f28d86", default-features = false, features = [
   "runtime-futures",
   "runtime-compio",
   "common",
