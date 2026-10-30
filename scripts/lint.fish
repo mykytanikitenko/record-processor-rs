@@ -2,7 +2,8 @@
 # Full lint pipeline: format check + fish syntax + clippy + panic + non-fish +
 # no-suppressions + no-banner-comments + workspace-deps + yaml-lint + recipe
 # lint + non-rudzio + no-fallbacks + module-only + no-new-get +
-# no-static-lifetime + no-tokio-runtime + cargo-audit + cargo-deny +
+# no-static-lifetime + no-tokio-runtime + no-manual-fmt + no-std-io +
+# no-implicit-alloc + no-materialize + cargo-audit + cargo-deny +
 # cargo-machete + nix-provenance + forbidden-word. Rust findings are annotated
 # in-place with
 # TODO(lint/<rule>) markers, then a TODO-precedence pass reports acknowledged
@@ -171,6 +172,26 @@ set -l notokio_status 1
 fish "$_root/scripts/lint/no-tokio-runtime.fish" "$_root/tmp/no-tokio-runtime.ndjson"
 set notokio_status $status
 
+# (o.0.1) no-manual-fmt lint
+set -l nomanualfmt_status 1
+fish "$_root/scripts/lint/no-manual-fmt.fish" "$_root/tmp/no-manual-fmt.ndjson"
+set nomanualfmt_status $status
+
+# (o.0.2) no-std-io lint
+set -l nostdio_status 1
+fish "$_root/scripts/lint/no-std-io.fish" "$_root/tmp/no-std-io.ndjson"
+set nostdio_status $status
+
+# (o.0.3) no-implicit-alloc lint
+set -l noimplicitalloc_status 1
+fish "$_root/scripts/lint/no-implicit-alloc.fish" "$_root/tmp/no-implicit-alloc.ndjson"
+set noimplicitalloc_status $status
+
+# (o.0.4) no-materialize lint
+set -l nomaterialize_status 1
+fish "$_root/scripts/lint/no-materialize.fish" "$_root/tmp/no-materialize.ndjson"
+set nomaterialize_status $status
+
 # (o.1) cargo-audit (RustSec advisories, strictest deny policy)
 set -l audit_status 1
 fish "$_root/scripts/lint/cargo-audit.fish" "$_root/tmp/cargo-audit.ndjson"
@@ -224,6 +245,14 @@ fish "$_root/scripts/lint/no-static-lifetime.fish" "$_root/tmp/no-static-lifetim
 set nostaticlifetime_status $status
 fish "$_root/scripts/lint/no-tokio-runtime.fish" "$_root/tmp/no-tokio-runtime.ndjson" >/dev/null 2>&1
 set notokio_status $status
+fish "$_root/scripts/lint/no-manual-fmt.fish" "$_root/tmp/no-manual-fmt.ndjson" >/dev/null 2>&1
+set nomanualfmt_status $status
+fish "$_root/scripts/lint/no-std-io.fish" "$_root/tmp/no-std-io.ndjson" >/dev/null 2>&1
+set nostdio_status $status
+fish "$_root/scripts/lint/no-implicit-alloc.fish" "$_root/tmp/no-implicit-alloc.ndjson" >/dev/null 2>&1
+set noimplicitalloc_status $status
+fish "$_root/scripts/lint/no-materialize.fish" "$_root/tmp/no-materialize.ndjson" >/dev/null 2>&1
+set nomaterialize_status $status
 
 # (r) TODO-precedence: drop marker-acknowledged Rust findings and emit the
 #     merged view to tmp/lint-findings.ndjson. Fails while anything remains.
@@ -233,7 +262,8 @@ set precedence_status $status
 
 # Summary. Rust sub-lints (clippy, panic, non-rudzio, no-suppressions,
 # no-banner-comments, no-fallbacks, module-only, no-new-get,
-# no-static-lifetime, no-tokio-runtime) read PASS/TODO/FAIL from the precedence
+# no-static-lifetime, no-tokio-runtime, no-manual-fmt, no-std-io,
+# no-implicit-alloc, no-materialize) read PASS/TODO/FAIL from the precedence
 # status file;
 # non-Rust sub-lints use their own status vars. The
 # finding list and per-rule counts come from the merged view
