@@ -1,5 +1,5 @@
-mod input;
-mod output;
+mod reader;
+mod writer;
 
 #[rudzio::main]
 fn main() {}

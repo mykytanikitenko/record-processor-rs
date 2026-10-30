@@ -13,12 +13,17 @@ autotests = false
 
 [dependencies]
 record-processor-domain = { workspace = true }
-rust_decimal = { workspace = true }
 thiserror = { workspace = true }
+tokio-util = { workspace = true }
 
 [dev-dependencies]
 anyhow.workspace = true
 rudzio.workspace = true
+rust_decimal.workspace = true
+
+[features]
+default = ["unit"]
+unit = []
 
 [[test]]
 name = "main"

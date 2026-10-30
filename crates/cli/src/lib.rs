@@ -3,4 +3,4 @@
 /// Entry point parsing arguments and driving the engine.
 mod run;
 
-pub use run::{ProcessError, RunError, ServeInputError, run};
+pub use run::{CancelError, ProcessError, RunError, ServeInputError, run};

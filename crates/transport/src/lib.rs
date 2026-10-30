@@ -1,7 +1,11 @@
-//! CSV transaction input and account balance output.
+//! CSV transaction input and account-balance output contracts.
 
-pub mod input;
-pub mod output;
+pub mod reader;
+pub mod writer;
 
-pub use input::{ReaderError, TransactionReader};
-pub use output::{AccountBalanceWriter, WriterError};
+#[cfg(feature = "unit")]
+pub use reader::{Mock as MockReader, MockReadError};
+pub use reader::{ReadDispatchError as ReaderError, ReadError, Reader, Type as ReaderType};
+#[cfg(feature = "unit")]
+pub use writer::{Mock as MockWriter, MockWriteError};
+pub use writer::{Type as WriterType, WriteDispatchError, WriteError, Writer};
