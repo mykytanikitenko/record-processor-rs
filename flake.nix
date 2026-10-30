@@ -23,7 +23,7 @@
           doCheck = false;
         });
         # cargo-rudzio 0.2.0 test runner, built from the fix branch of the
-        # rudzio git repo (rev bb802e66864d39e434bfbaf015696a9c2a2a1662). Its
+        # rudzio git repo (rev c4bf5a7ea4f1b490e27c3cb1c034505549f28d86). Its
         # self-test suite compiles and passes, but doCheck stays
         # disabled: the suite exercises every pluggable runtime (monoio, smol,
         # async-std, embassy, compio, …) as dev-dependencies, which makes nix
@@ -35,10 +35,10 @@
           src = pkgs.fetchFromGitHub {
             owner = "mykytanikitenko";
             repo = "rudzio";
-            rev = "bb802e66864d39e434bfbaf015696a9c2a2a1662";
-            hash = "sha256-Ie9nLTJcCyQieT4ZNYvs0rsY3qeiHpJrMXg2FxUuKFY=";
+            rev = "c4bf5a7ea4f1b490e27c3cb1c034505549f28d86";
+            hash = "sha256-UbkqyMJozG3gN0QwxWZXUjUBn+Vxe+LwezBVnmd9Dhw=";
           };
-          cargoHash = "sha256-9P4OUo5lk6o9T6awwoDPCd3pJD7angB47ce1fYVHMTo=";
+          cargoHash = "sha256-k7yMIx5YbFDSfZV6gbkgK/4gnAa1y2PmB+2r9UHUBa0=";
           doCheck = false;
           cargoBuildFlags = [
             "-p"
