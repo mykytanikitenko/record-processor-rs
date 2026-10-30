@@ -1,4 +1,5 @@
-//! The transaction reader: an owned stream over an async byte source.
+//! The transaction reader: an owned stream of transactions parsed from an
+//! async byte source.
 
 use compio::buf::{BufResult, IntoInner as _, IoBufMut as _};
 use compio::io::{AsyncRead, AsyncReadAt as _, AsyncReadExt as _};

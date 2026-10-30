@@ -1,4 +1,5 @@
-//! The account-balance writer: an owned sink over an async byte target.
+//! The account-balance writer: formats balances as CSV rows into an owned
+//! async byte sink.
 
 use compio::buf::IoBuf as _;
 use compio::io::{AsyncWrite, AsyncWriteExt as _};
