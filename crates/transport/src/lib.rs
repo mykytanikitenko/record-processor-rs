@@ -1,14 +1,7 @@
-//! CSV transaction input and account-balance output contracts.
+//! Stdio CSV transport: the transaction reader and the account-balance writer.
 
 pub mod reader;
 pub mod writer;
 
-pub use reader::{
-    FillError, Input, ReadDispatchError as ReaderError, ReadError, Reader, RecordError,
-    Type as ReaderType,
-};
-#[cfg(feature = "unit")]
-pub use reader::{Mock as MockReader, MockReadError};
-pub use writer::{FormatError, Type as WriterType, WriteDispatchError, WriteError, Writer};
-#[cfg(feature = "unit")]
-pub use writer::{Mock as MockWriter, MockWriteError};
+pub use reader::{FillError, Input, ReadError, Reader, RecordError};
+pub use writer::{FormatError, WriteError, Writer};

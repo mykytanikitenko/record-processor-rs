@@ -55,7 +55,7 @@ pub enum ProcessError {
     Serve(#[from] service::ServeError),
     /// The balance stream failed while producing balances.
     #[error(transparent)]
-    Stream(#[from] service::BalancesError),
+    Stream(#[from] service::RealBalancesError),
     /// Writing the account balances failed.
     #[error(transparent)]
     Write(#[from] transport::WriteError),
@@ -81,7 +81,14 @@ where
     S: AsyncRead,
 {
     let reader = transport::Reader::from(source);
-    let mut balances = service::Engine.serve(reader, token).await?;
+    let mut balances = service::Engine {
+        index: storage::Storage,
+        eof: storage::Storage,
+        queue: storage::Storage,
+        state: storage::Storage,
+    }
+    .serve(reader, token)
+    .await?;
     let mut writer = transport::Writer::from(compio::fs::stdout());
     while let Some(balance) = balances.next(token).await? {
         writer.write_all(&[balance], token).await?;

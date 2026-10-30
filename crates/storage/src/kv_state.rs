@@ -4,12 +4,27 @@ use record_processor_domain::client_id::ClientId;
 use record_processor_domain::output::AccountBalance;
 use tokio_util::sync::CancellationToken;
 
-/// Failure to use the per-client state.
+/// Failure to read one client's state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
-pub enum StateError {
-    /// The state is a contract stub with no implementation yet.
-    #[error("per-client state is not implemented")]
+pub enum StateReadError {
+    /// The read was cancelled.
+    #[error("per-client state read cancelled")]
+    Cancelled,
+    /// The state is a contract stub with no backing store yet.
+    #[error("per-client state read is not implemented")]
+    Unimplemented,
+}
+
+/// Failure to write one client's state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum StateWriteError {
+    /// The write was cancelled before it was persisted.
+    #[error("per-client state write cancelled")]
+    Cancelled,
+    /// The state is a contract stub with no backing store yet.
+    #[error("per-client state write is not implemented")]
     Unimplemented,
 }
 
@@ -20,12 +35,12 @@ pub enum NextEntryError {
     /// The iteration was cancelled.
     #[error("per-client state iteration cancelled")]
     Cancelled,
-    /// The iterator is a contract stub with no implementation yet.
+    /// The iterator is a contract stub with no backing store yet.
     #[error("per-client state iteration is not implemented")]
     Unimplemented,
 }
 
-/// A lazy, owned iterator over every `(client, balance)` entry.
+/// A lazy, owned cursor over every stored `(client, balance)` entry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct KvEntries {
     /// Whether the single stub error item has already been yielded.
@@ -45,7 +60,7 @@ impl KvEntries {
     /// # Errors
     ///
     /// Returns [`NextEntryError::Cancelled`] when the token fires, or
-    /// [`NextEntryError::Unimplemented`] (contract stub).
+    /// [`NextEntryError::Unimplemented`] while there is no backing store.
     #[inline]
     pub async fn next(
         &mut self,
@@ -62,18 +77,29 @@ impl KvEntries {
     }
 }
 
-/// Per-client account state, keyed by client id.
+/// Per-client account state keyed by client id; stores whatever the service
+/// hands it and applies no rules of its own.
 pub trait KvState {
-    /// The error produced by the state.
-    type Error: core::fmt::Debug + core::fmt::Display;
+    /// The error produced by [`KvState::read`].
+    type ReadStateError: core::fmt::Debug + core::fmt::Display;
+    /// The error produced by [`KvState::write`].
+    type WriteStateError: core::fmt::Debug + core::fmt::Display;
 
     /// Lazily iterate every stored entry.
     fn entries(&mut self) -> KvEntries;
 
-    /// Record `balance` for `client`.
-    async fn update(
+    /// Load the stored balance for `client`, or `None` if never written.
+    async fn read(
+        &mut self,
+        client: ClientId,
+        cancel: &CancellationToken,
+    ) -> Result<Option<AccountBalance>, Self::ReadStateError>;
+
+    /// Persist `balance` for `client`, replacing any previous value.
+    async fn write(
         &mut self,
         client: ClientId,
         balance: &AccountBalance,
-    ) -> Result<(), Self::Error>;
+        cancel: &CancellationToken,
+    ) -> Result<(), Self::WriteStateError>;
 }

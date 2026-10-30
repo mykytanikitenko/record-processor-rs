@@ -1,28 +1,32 @@
-//! The service contract: consume a transaction stream, produce account
-//! balances, dispatched between the real engine and a unit-test mock.
+//! The service contract and the engine that owns all business rules, generic
+//! over the storage traits so it can be unit-tested against mocks.
 
+use storage::{DedupIndex, EndOfInput, EventQueue, KvState};
 use tokio_util::sync::CancellationToken;
 
-use crate::balance_stream::Balances;
+use crate::balance_stream::BalanceStream;
 use crate::serve::EngineError;
 use crate::transaction_stream::TransactionStream;
 
-/// A payments engine that consumes a transaction stream and produces the final
-/// per-client account balances as a lazy, owned stream.
+/// A service consuming a transaction stream and producing a lazy stream of
+/// per-client balances.
 pub trait Service {
     /// The error produced while serving.
     type Error: core::fmt::Debug + core::fmt::Display;
+    /// The lazy balance stream produced once input is consumed.
+    type Output: BalanceStream;
 
-    /// Consume `input` to completion and produce the account balances.
-    ///
-    /// Cancellation is cooperative via `cancel`: the returned stream yields a
-    /// typed `Cancelled` item once the token fires.
-    async fn serve<S>(self, input: S, cancel: &CancellationToken) -> Result<Balances, Self::Error>
+    /// Consume `input`, returning the balance stream.
+    async fn serve<S>(
+        self,
+        input: S,
+        cancel: &CancellationToken,
+    ) -> Result<Self::Output, Self::Error>
     where
         S: TransactionStream;
 }
 
-/// Failure to serve through the production engine.
+/// Failure to serve through the engine.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum ServeError {
@@ -31,86 +35,39 @@ pub enum ServeError {
     Impl(#[from] EngineError),
 }
 
-/// Failure to serve through the unit-test mock.
-#[cfg(feature = "unit")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[non_exhaustive]
-pub enum MockServiceError {
-    /// The mock has no implementation.
-    #[error("mock service is not implemented")]
-    Unimplemented,
+/// The payments engine, owning one handle per storage component so each can be
+/// backed independently (the real store in production, a mock in unit tests).
+#[derive(Debug)]
+pub struct Engine<Q, I, E, K> {
+    /// End-of-input signal between ingest and workers.
+    pub eof: E,
+    /// Deduplication index of seen transaction ids.
+    pub index: I,
+    /// Append-only queue of accepted events.
+    pub queue: Q,
+    /// Per-client account state.
+    pub state: K,
 }
 
-/// Failure to serve through a dispatched service.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[non_exhaustive]
-pub enum ServeDispatchError {
-    /// The unit-test mock failed.
-    #[cfg(feature = "unit")]
-    #[error(transparent)]
-    Mock(#[from] MockServiceError),
-    /// The production engine failed.
-    #[error(transparent)]
-    Real(#[from] ServeError),
-}
-
-/// The production engine (a contract stub until the business logic lands).
-#[derive(Clone, Copy, Debug)]
-pub struct Engine;
-
-impl Service for Engine {
+impl<Q, I, E, K> Service for Engine<Q, I, E, K>
+where
+    Q: EventQueue,
+    I: DedupIndex,
+    E: EndOfInput,
+    K: KvState,
+{
     type Error = ServeError;
+    type Output = crate::balance_stream::RealBalances;
 
     #[inline]
-    async fn serve<S>(self, input: S, cancel: &CancellationToken) -> Result<Balances, Self::Error>
+    async fn serve<S>(
+        self,
+        input: S,
+        cancel: &CancellationToken,
+    ) -> Result<Self::Output, Self::Error>
     where
         S: TransactionStream,
     {
         self.serve_impl(input, cancel).await.map_err(Into::into)
-    }
-}
-
-/// The unit-test mock, returning a canned failure without running the engine.
-#[cfg(feature = "unit")]
-#[derive(Clone, Copy, Debug)]
-pub struct Mock;
-
-#[cfg(feature = "unit")]
-impl Service for Mock {
-    type Error = MockServiceError;
-
-    #[inline]
-    async fn serve<S>(self, _input: S, _cancel: &CancellationToken) -> Result<Balances, Self::Error>
-    where
-        S: TransactionStream,
-    {
-        Err(MockServiceError::Unimplemented)
-    }
-}
-
-/// Dispatch between the real engine and the unit-test mock.
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug)]
-pub enum Type {
-    /// The unit-test mock.
-    #[cfg(feature = "unit")]
-    Mock(Mock),
-    /// The production engine.
-    Real(Engine),
-}
-
-impl Service for Type {
-    type Error = ServeDispatchError;
-
-    #[inline]
-    async fn serve<S>(self, input: S, cancel: &CancellationToken) -> Result<Balances, Self::Error>
-    where
-        S: TransactionStream,
-    {
-        match self {
-            #[cfg(feature = "unit")]
-            Self::Mock(mock) => mock.serve(input, cancel).await.map_err(Into::into),
-            Self::Real(engine) => engine.serve(input, cancel).await.map_err(Into::into),
-        }
     }
 }

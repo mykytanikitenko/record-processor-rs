@@ -70,14 +70,49 @@ How the project is put together:
 | ------------------------ | --------------------------------- | --------------------------------------------- |
 | `record-processor` (bin) | thin entry, calls `cli` | `cli` |
 | `crates/domain` | transaction and account-balance models | `rust_decimal`, `serde`, `thiserror` |
-| `crates/storage` | account and transaction state | `domain`, `rust_decimal` |
-| `crates/service` | engine applying transactions | `domain`, `storage`, `rust_decimal`, `thiserror` |
-| `crates/transport` | CSV reading and writing | `csv`, `serde`, `domain`, `rust_decimal` |
-| `crates/cli` | argument parsing and wiring | `pico-args`, `transport`, `service`, `storage`, `thiserror` |
+| `crates/storage` | persistence only: event queue, dedup index, end-of-input signal, per-client state | `domain`, `thiserror`, `tokio-util` |
+| `crates/service` | all business rules, generic over the storage traits | `domain`, `storage`, `thiserror`, `tokio-util` |
+| `crates/transport` | stdio CSV reading and writing | `compio`, `domain`, `rust_decimal`, `service`, `thiserror`, `tokio-util` |
+| `crates/cli` | composition root: builds real storage, service and transport and wires them | `compio`, `pico-args`, `service`, `storage`, `transport`, `thiserror`, `tokio-util` |
 
 Shared workspace dependencies, pinned to exact versions: `anyhow` 1.0.104
-(dev), `compio` 0.19.2, `csv` 1.4.0, `pico-args` 0.5.0, `rust_decimal` 1.43.0,
-`serde` 1.0.229, `thiserror` 2.0.21, and `rudzio` (git, the test runner).
+(dev), `compio` 0.19.2, `csv` 1.4.0, `mockall` 0.15.0 (dev, `service` only),
+`pico-args` 0.5.0, `rust_decimal` 1.43.0, `serde` 1.0.229, `thiserror` 2.0.21,
+`tokio-util` 0.7.20, and `rudzio` (git, the test runner).
+
+### Layering and trait contracts
+
+Every async contract method takes a `&CancellationToken` and returns its own
+error type, so a failure names the operation that produced it.
+
+**Storage** (`crates/storage`) stores what it is given and decides nothing.
+Business outcomes such as a duplicate id are reported as values, and the
+service decides what they mean. It is tested by integration tests in
+`crates/storage/tests/` against the real backend; it has no mocks.
+
+| trait | methods |
+| --- | --- |
+| `EventQueue` | `append_batch(&[Transaction]) -> IdRange`; `read_batch(from: u64, &mut [Transaction]) -> usize` fills a caller-owned buffer |
+| `DedupIndex` | `insert(TxId) -> Insertion` (`Fresh` or `Duplicate`) |
+| `EndOfInput` | `notify(end: u64)`; `wait() -> u64` returns the queue's exclusive end id |
+| `KvState` | `read(ClientId) -> Option<AccountBalance>`; `write(ClientId, &AccountBalance)`; `entries() -> KvEntries`, a lazy cursor |
+
+`storage::Storage` is the production backend. Every method returns a typed
+`Unimplemented` until the mmap-backed store lands.
+
+**Service** (`crates/service`) owns every rule: deposit, withdrawal, dispute,
+resolve, chargeback, routing and failed-transaction bookkeeping. `Engine<Q, I, E, K>` holds one handle per storage trait. That lets each handle be the real
+store or a mock independently. `Service::serve(self, TransactionStream, &CancellationToken) -> Output` returns a lazy `BalanceStream`. Unit tests in
+`crates/service/tests/` drive the engine against `mockall` mocks of all four
+storage traits.
+
+**Transport** (`crates/transport`) implements `TransactionStream` (the CSV
+`Reader`) and writes balances (`Writer`) over stdio or a file. There is one real
+implementation, and the traits leave room for other protocols.
+
+**CLI** (`crates/cli`) is the composition root. It constructs
+`Engine { eof, index, queue, state }` over `storage::Storage` and feeds it the
+transport reader.
 
 ## Development
 
