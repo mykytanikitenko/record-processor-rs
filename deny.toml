@@ -32,6 +32,25 @@ skip = [
     { crate = "syn@2.0.119", reason = "derive_more-impl (all releases through 2.1.1) requires syn ^2.0.45 and rudzio-macro uses syn 2; remove once derive_more supports syn 3 and rudzio is bumped" },
 ]
 
+# The payments engine is compio thread-per-core and must not pull a Tokio
+# runtime. `tokio-util`'s `CancellationToken`/`TaskTracker` are the only
+# permitted Tokio-family APIs, and they require only tokio's empty `rt`/`sync`
+# marker features. Every heavyweight Tokio feature is denied so no future
+# dependency can silently drag in a second runtime.
+[[bans.features]]
+crate = "tokio"
+deny = [
+    "fs",
+    "io-std",
+    "io-util",
+    "macros",
+    "net",
+    "process",
+    "rt-multi-thread",
+    "signal",
+    "time",
+]
+
 [licenses]
 version = 2
 # Allow-list: exactly the SPDX identifiers present in the resolved dependency

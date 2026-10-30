@@ -21,7 +21,6 @@
 //! cancellation test once the CLI grows one.
 
 use std::convert::Infallible;
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 use rudzio::Config;
@@ -41,55 +40,46 @@ const SPEC_EXAMPLE_STDOUT: &str =
 const HEADER_ONLY_STDOUT: &str = "client,available,held,total,locked\n";
 
 /// Suite context: the compiled binary path, resolved once in setup.
+#[derive(derive_more::Debug)]
 struct CliSuite<'suite_context, R>
 where
     R: Runtime<'suite_context> + Sync,
 {
     /// Resolved `record-processor` binary path, shared by every test.
+    #[debug(skip)]
     bin: PathBuf,
     /// Root cancellation token whose children are handed out to per-test contexts.
+    #[debug(skip)]
     cancel: CancellationToken,
     /// Borrow of the async runtime driving the suite context.
+    #[debug(skip)]
     rt: &'suite_context R,
     /// Tracks spawned background tasks so teardown can wait for them.
+    #[debug(skip)]
     tracker: TaskTracker,
 }
 
 /// Per-test context: borrows the suite's binary path and task tracker.
+#[derive(derive_more::Debug)]
 struct CliTest<'test_context, R>
 where
     R: Runtime<'test_context> + Sync,
 {
     /// The suite's resolved binary path, borrowed for this test.
+    #[debug(skip)]
     bin: &'test_context Path,
     /// Child cancellation token scoped to this test.
+    #[debug(skip)]
     cancel: CancellationToken,
     /// Resolved CLI/env configuration, handed down from the suite.
+    #[debug(skip)]
     config: &'test_context Config,
     /// Borrow of the async runtime driving the test.
+    #[debug(skip)]
     rt: &'test_context R,
     /// Suite-shared task tracker, borrowed rather than cloned.
+    #[debug(skip)]
     tracker: &'test_context TaskTracker,
-}
-
-impl<'suite_context, R> fmt::Debug for CliSuite<'suite_context, R>
-where
-    R: Runtime<'suite_context> + Sync,
-{
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CliSuite").finish_non_exhaustive()
-    }
-}
-
-impl<'test_context, R> fmt::Debug for CliTest<'test_context, R>
-where
-    R: Runtime<'test_context> + Sync,
-{
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("CliTest").finish_non_exhaustive()
-    }
 }
 
 impl<'suite_context, R> context::Suite<'suite_context, R> for CliSuite<'suite_context, R>

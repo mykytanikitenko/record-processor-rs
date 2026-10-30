@@ -19,6 +19,7 @@ thiserror = { workspace = true }
 anyhow.workspace = true
 compio.workspace = true
 csv.workspace = true
+derive_more.workspace = true
 rudzio.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
@@ -49,8 +50,12 @@ compio = { version = "=0.19.2", default-features = false, features = [
 ] }
 csv = { version = "=1.4.0", default-features = false, features = [] }
 derive_more = { version = "=2.1.1", default-features = false, features = [
+  "debug",
   "deref",
 ] }
+futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+libc = { version = "=0.2.191", default-features = false, features = [] }
+mockall = { version = "=0.15.0", default-features = false, features = [] }
 record-processor-domain = { path = "crates/domain", default-features = false, features = [] }
 pico-args = { version = "=0.5.0", default-features = false, features = [] }
 rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "f6b0d3a35b237d02f91088f596091f5490ea8107", default-features = false, features = [
@@ -70,6 +75,7 @@ service = { path = "crates/service", default-features = false, features = [] }
 thiserror = { version = "=2.0.21", default-features = false, features = [
   "std",
 ] }
+tokio-util = { version = "=0.7.20", default-features = false, features = ["rt"] }
 toml = { version = "=0.8.23", default-features = false, features = ["parse"] }
 transport = { path = "crates/transport", default-features = false, features = [
 ] }
