@@ -125,6 +125,7 @@ dependencies = [
  "futures-util",
  "libc",
  "pico-args",
+ "record-processor-domain",
  "rudzio",
  "service",
  "storage",
@@ -1384,6 +1385,7 @@ dependencies = [
  "mockall",
  "record-processor-domain",
  "rudzio",
+ "rust_decimal",
  "storage",
  "thiserror",
  "tokio-util",
@@ -1469,11 +1471,11 @@ name = "storage"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "derive_more",
  "record-processor-domain",
  "rudzio",
  "rust_decimal",
  "thiserror",
- "tokio-util",
 ]
 
 [[package]]

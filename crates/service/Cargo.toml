@@ -21,6 +21,8 @@ tokio-util = { workspace = true }
 anyhow.workspace = true
 mockall.workspace = true
 rudzio.workspace = true
+rust_decimal.workspace = true
+thiserror.workspace = true
 
 [[test]]
 name = "main"
