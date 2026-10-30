@@ -13,7 +13,7 @@ mod tests {
     use service::TransactionStream as _;
     use std::str::FromStr as _;
     use tokio_util::sync::CancellationToken;
-    use transport::{ReadError, Reader, RecordError};
+    use transport::{Input, ReadError, Reader, RecordError};
 
     /// A byte source that yields at most `chunk` bytes per read, forcing the
     /// reader to reassemble records across buffer refills.
@@ -52,7 +52,7 @@ mod tests {
     /// Drive a reader over `input` until the first error is produced.
     async fn first_error(input: &[u8]) -> anyhow::Result<ReadError> {
         let token = CancellationToken::new();
-        let mut reader = Reader::from(input);
+        let mut reader = Reader::from(Input::Stream(input));
         match reader.next(&token).await {
             Err(error) => Ok(error),
             Ok(item) => anyhow::bail!("expected an error, got {item:?}"),
@@ -63,7 +63,7 @@ mod tests {
     /// transaction and dropping the trailing end-of-input marker.
     async fn read_all(source: impl AsyncRead) -> anyhow::Result<Vec<Transaction>> {
         let token = CancellationToken::new();
-        let mut reader = Reader::from(source);
+        let mut reader = Reader::from(Input::Stream(source));
         let mut transactions = Vec::new();
         loop {
             match reader.next(&token).await? {
@@ -79,7 +79,7 @@ mod tests {
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
         let token = CancellationToken::new();
-        let mut reader = Reader::from(b"type,client,tx,amount\n".as_slice());
+        let mut reader = Reader::from(Input::Stream(b"type,client,tx,amount\n".as_slice()));
         anyhow::ensure!(
             matches!(reader.next(&token).await, Ok(Some(Transaction::Eof))),
             "expected the end-of-input marker"
@@ -147,7 +147,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let token = CancellationToken::new();
         token.cancel();
-        let mut reader = Reader::from(b"type,client,tx,amount\n".as_slice());
+        let mut reader = Reader::from(Input::Stream(b"type,client,tx,amount\n".as_slice()));
         anyhow::ensure!(
             matches!(reader.next(&token).await, Err(ReadError::Cancelled)),
             "expected a cancelled error"

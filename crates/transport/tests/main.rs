@@ -1,3 +1,4 @@
+mod file_reader;
 mod reader;
 mod writer;
 
