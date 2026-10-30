@@ -1,7 +1,8 @@
 //! The transaction reader contract: an owned stream over an async byte source,
 //! dispatched between the real reader and a unit-test mock.
 
-use compio::io::{AsyncRead, AsyncReadExt as _};
+use compio::buf::{BufResult, IntoInner as _, IoBufMut as _};
+use compio::io::{AsyncRead, AsyncReadAt as _, AsyncReadExt as _};
 use record_processor_domain::client_id::ClientId;
 use record_processor_domain::input::{Amount, ConstructionError, Transaction, TxId};
 use rust_decimal::Decimal;
@@ -40,12 +41,27 @@ pub enum ReadError {
     /// The stream was cancelled before it exhausted.
     #[error("transaction reader cancelled")]
     Cancelled,
-    /// The underlying byte source failed.
+    /// Refilling the buffer from the byte source failed.
     #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Fill(#[from] FillError),
     /// A CSV record could not be mapped onto a transaction.
     #[error(transparent)]
     Record(#[from] RecordError),
+}
+
+/// Failure to refill the read buffer from the byte source.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum FillError {
+    /// The underlying byte source failed.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// The running file offset overflowed `u64`.
+    #[error("input file offset overflowed")]
+    OffsetOverflow,
+    /// A read length did not fit the `u64` file offset.
+    #[error("input read length does not fit the file offset: {0}")]
+    OffsetWiden(#[from] std::num::TryFromIntError),
 }
 
 /// Failure to map one CSV line onto a [`Transaction`].
@@ -110,7 +126,39 @@ pub enum ReadDispatchError {
     Real(#[from] ReadError),
 }
 
-/// A production transaction reader over an async byte source.
+/// The owned byte source of the production reader.
+///
+/// `compio::fs::File` is positional (`AsyncReadAt`) and has no sequential
+/// `AsyncRead`, so a file is read through an explicit offset owned here instead
+/// of an adapter; both variants refill the same reused buffer.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Input<S> {
+    /// A positional file read from `offset` onward.
+    File {
+        /// The file being streamed.
+        file: compio::fs::File,
+        /// The position of the next read.
+        offset: u64,
+    },
+    /// A sequential stream such as standard input.
+    Stream(S),
+}
+
+impl<S> From<compio::fs::File> for Input<S> {
+    #[inline]
+    fn from(file: compio::fs::File) -> Self {
+        Self::File { file, offset: 0 }
+    }
+}
+
+/// A production transaction reader over an owned byte source.
+///
+/// The record loop is hand-written rather than a `compio::io::framed::Framed`
+/// stream: its `Stream` impl demands `R: AsyncRead + 'static`, which a generic
+/// source cannot name without the forbidden `'static` token, and the header
+/// state, the end-of-input marker and the per-call cancellation check have no
+/// place in a `Framer`/`Decoder` pair.
 #[derive(Debug)]
 pub struct Reader<S> {
     /// Bytes read but not yet consumed as a complete record.
@@ -121,13 +169,13 @@ pub struct Reader<S> {
     eof_yielded: bool,
     /// Whether the header row has been consumed.
     header_seen: bool,
-    /// The async byte source the real reader consumes.
-    source: S,
+    /// The owned byte source the real reader consumes.
+    source: Input<S>,
 }
 
-impl<S> From<S> for Reader<S> {
+impl<S> From<Input<S>> for Reader<S> {
     #[inline]
-    fn from(source: S) -> Self {
+    fn from(source: Input<S>) -> Self {
         Self {
             buffer: Vec::from([]),
             eof: false,
@@ -141,8 +189,37 @@ impl<S> From<S> for Reader<S> {
 impl<S> Reader<S> {
     /// Consume the reader, returning the underlying source.
     #[inline]
-    pub fn into_inner(self) -> S {
+    pub fn into_inner(self) -> Input<S> {
         self.source
+    }
+}
+
+impl<S> Reader<S>
+where
+    S: AsyncRead,
+{
+    /// Append the next chunk of the source to the reused buffer, returning the
+    /// number of bytes read (zero at end-of-input).
+    async fn fill(&mut self) -> Result<usize, FillError> {
+        let mut buffer = Vec::from([]);
+        core::mem::swap(&mut buffer, &mut self.buffer);
+        buffer.reserve(READ_CHUNK);
+        match &mut self.source {
+            Input::File { file, offset } => {
+                let BufResult(result, tail) = file.read_at(buffer.uninit(), *offset).await;
+                self.buffer = tail.into_inner();
+                let read = result?;
+                *offset = offset
+                    .checked_add(u64::try_from(read)?)
+                    .ok_or(FillError::OffsetOverflow)?;
+                Ok(read)
+            }
+            Input::Stream(stream) => {
+                let appended = stream.append(buffer).await;
+                self.buffer = appended.1;
+                Ok(appended.0?)
+            }
+        }
     }
 }
 
@@ -192,15 +269,8 @@ where
                 continue;
             }
 
-            let mut buffer = Vec::from([]);
-            core::mem::swap(&mut buffer, &mut self.buffer);
-            buffer.reserve(READ_CHUNK);
-            let appended = self.source.append(buffer).await;
-            self.buffer = appended.1;
-            match appended.0 {
-                Ok(0) => self.eof = true,
-                Ok(_) => {}
-                Err(error) => return Err(ReadError::Io(error)),
+            if self.fill().await.map_err(ReadError::Fill)? == 0 {
+                self.eof = true;
             }
         }
     }

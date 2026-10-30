@@ -1,7 +1,7 @@
 //! Command-line wiring: parse arguments, build the runtime, and drive the
 //! payments engine to stdout with cooperative cancellation.
 
-use compio::io::{AsyncRead, AsyncReadAtExt as _};
+use compio::io::AsyncRead;
 use futures_util::future::Either;
 use service::BalanceStream as _;
 use service::Service as _;
@@ -73,7 +73,10 @@ async fn cancel_on_signal(token: CancellationToken) -> Result<(), CancelError> {
 }
 
 /// Drive the engine over `source`, writing balances to stdout.
-async fn process<S>(source: S, token: &CancellationToken) -> Result<(), ProcessError>
+async fn process<S>(
+    source: transport::Input<S>,
+    token: &CancellationToken,
+) -> Result<(), ProcessError>
 where
     S: AsyncRead,
 {
@@ -93,12 +96,10 @@ async fn serve_input(
 ) -> Result<(), ServeInputError> {
     if let Some(path) = input {
         let file = compio::fs::File::open(path).await?;
-        let appended = file.read_to_end_at(Vec::from([]), 0).await;
-        let _len = appended.0?;
-        process(appended.1.as_slice(), token).await?;
+        process(transport::Input::<compio::fs::Stdin>::from(file), token).await?;
     } else {
         let stdin = compio::fs::stdin();
-        process(stdin, token).await?;
+        process(transport::Input::Stream(stdin), token).await?;
     }
     Ok(())
 }
