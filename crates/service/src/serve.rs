@@ -5,7 +5,7 @@
 
 use tokio_util::sync::CancellationToken;
 
-use crate::balance_stream::Balances;
+use crate::balance_stream::RealBalances;
 use crate::service::Engine;
 use crate::transaction_stream::TransactionStream;
 
@@ -27,7 +27,7 @@ impl Engine {
         self,
         _input: S,
         _cancel: &CancellationToken,
-    ) -> Result<Balances, EngineError>
+    ) -> Result<RealBalances, EngineError>
     where
         S: TransactionStream,
     {

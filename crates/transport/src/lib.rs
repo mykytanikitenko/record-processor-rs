@@ -3,12 +3,5 @@
 pub mod reader;
 pub mod writer;
 
-pub use reader::{
-    FillError, Input, ReadDispatchError as ReaderError, ReadError, Reader, RecordError,
-    Type as ReaderType,
-};
-#[cfg(feature = "unit")]
-pub use reader::{Mock as MockReader, MockReadError};
-pub use writer::{FormatError, Type as WriterType, WriteDispatchError, WriteError, Writer};
-#[cfg(feature = "unit")]
-pub use writer::{Mock as MockWriter, MockWriteError};
+pub use reader::{FillError, Input, NextBatchError, Reader, RecordError};
+pub use writer::{DecimalError, FormatError, UintError, WriteBatchError, Writer};

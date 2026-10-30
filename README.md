@@ -142,12 +142,15 @@ Recorded decisions, each with the reasoning that settled it:
 
 ## Status
 
-The step-1 traits contract is landed: `service`, `transport`, and `storage`
-traits with `Real`/`Mock` dispatch, cancellation plumbing, and CLI wiring are
-in place; `just build` and `just lint` are green. The transport layer is being
-rewritten (Compio `Framed` + `csv-core`). The engine (business logic) is not
-implemented — `serve` is a contract stub returning `EngineError::Unimplemented`
-— so the e2e success fixtures fail until the engine lands.
+The `service`, `transport`, and `storage` trait contracts are landed, with
+cancellation plumbing and CLI wiring in place; `just build` and `just lint`
+are green. The transport reader and writer are single real stdio
+implementations that stream in batches over reused buffers (no `Real`/`Mock`
+dispatch); the reader parses a borrowed batch of rows per buffer fill and the
+writer formats a whole slice in one write. The engine (business logic) is not
+implemented — `serve` is a contract stub returning
+`EngineError::Unimplemented` — so the e2e success fixtures fail until the
+engine lands.
 
 ## End-to-end tests
 

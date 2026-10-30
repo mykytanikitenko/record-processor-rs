@@ -1,5 +1,5 @@
 //! The account-balance writer contract: an owned sink over an async byte
-//! target, dispatched between the real writer and a unit-test mock.
+//! target.
 
 use compio::buf::IoBuf as _;
 use compio::io::{AsyncWrite, AsyncWriteExt as _};
@@ -21,17 +21,18 @@ macro_rules! push_byte {
     }};
 }
 
-/// The fixed CSV header written once before the first balance row.
+/// The fixed CSV header written once before the first balance batch.
 const HEADER: &[u8] = b"client,available,held,total,locked\n";
 
-/// Capacity of the reused row buffer. A balance row is at most a `u16` client
-/// id, three 29-digit signed decimals, a boolean, four commas, and a newline.
-const ROW_CAP: usize = 128;
+/// Capacity of the reused batch buffer. A balance row is at most a `u16`
+/// client id, three 29-digit signed decimals, a boolean, four commas, and a
+/// newline; the batch buffer holds several rows in one write.
+const BATCH_BUF_CAP: usize = 1024;
 
 /// Failure to write through the production writer.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum WriteError {
+pub enum WriteBatchError {
     /// The sink was cancelled before every balance was written.
     #[error("balance writer cancelled")]
     Cancelled,
@@ -82,34 +83,11 @@ pub enum UintError {
     Overflow,
 }
 
-/// Failure to write through the mock writer.
-#[cfg(feature = "unit")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[non_exhaustive]
-pub enum MockWriteError {
-    /// The sink was cancelled before every balance was written.
-    #[error("balance writer cancelled")]
-    Cancelled,
-}
-
-/// Failure to write through a dispatched writer.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum WriteDispatchError {
-    /// The mock writer failed.
-    #[cfg(feature = "unit")]
-    #[error(transparent)]
-    Mock(#[from] MockWriteError),
-    /// The production writer failed.
-    #[error(transparent)]
-    Real(#[from] WriteError),
-}
-
 /// A production account-balance writer over an async byte sink.
 #[derive(Debug)]
 pub struct Writer<S> {
-    /// The reused buffer each row is formatted into.
-    row: [u8; ROW_CAP],
+    /// The reused buffer every row of a batch is formatted into.
+    buf: [u8; BATCH_BUF_CAP],
     /// The async byte sink the real writer targets.
     sink: S,
     /// Whether the CSV header has already been written.
@@ -120,7 +98,7 @@ impl<S> From<S> for Writer<S> {
     #[inline]
     fn from(sink: S) -> Self {
         Self {
-            row: [0_u8; ROW_CAP],
+            buf: [0_u8; BATCH_BUF_CAP],
             sink,
             wrote_header: false,
         }
@@ -139,123 +117,60 @@ impl<S> Writer<S>
 where
     S: AsyncWrite,
 {
-    /// Write the header (once) followed by every balance as a CSV row.
+    /// Write the header (once) followed by every balance as one CSV batch.
     ///
     /// # Errors
     ///
-    /// Returns [`WriteError::Cancelled`] when the token fires,
-    /// [`WriteError::Io`] when the sink fails, or [`WriteError::Format`] when
-    /// a row cannot be formatted.
+    /// Returns [`WriteBatchError::Cancelled`] when the token fires,
+    /// [`WriteBatchError::Io`] when the sink fails, or
+    /// [`WriteBatchError::Format`] when a row cannot be formatted.
     #[inline]
-    pub async fn write_all(
+    pub async fn write_batch(
         &mut self,
         balances: &[AccountBalance],
         cancel: &CancellationToken,
-    ) -> Result<(), WriteError> {
+    ) -> Result<(), WriteBatchError> {
         if cancel.is_cancelled() {
-            return Err(WriteError::Cancelled);
+            return Err(WriteBatchError::Cancelled);
         }
         if !self.wrote_header {
             self.sink.write_all(HEADER).await.0?;
             self.wrote_header = true;
         }
+        let mut pos = 0_usize;
         for balance in balances {
-            if cancel.is_cancelled() {
-                return Err(WriteError::Cancelled);
-            }
-            let len = format_row(balance, &mut self.row)?;
-            let bytes = self.row.slice(..len);
-            self.sink.write_all(bytes).await.0?;
+            format_row(balance, &mut self.buf, &mut pos)?;
         }
+        self.sink.write_all(self.buf.slice(..pos)).await.0?;
         self.sink.flush().await?;
         Ok(())
     }
 }
 
-/// The mock account-balance writer, enabled for unit tests only. It discards
-/// every balance and reports success.
-#[cfg(feature = "unit")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Mock;
-
-#[cfg(feature = "unit")]
-impl Mock {
-    /// Accept the balances and report success without writing anything.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`MockWriteError::Cancelled`] when the token fires.
-    #[inline]
-    pub async fn write_all(
-        &mut self,
-        _balances: &[AccountBalance],
-        cancel: &CancellationToken,
-    ) -> Result<(), MockWriteError> {
-        if cancel.is_cancelled() {
-            Err(MockWriteError::Cancelled)
-        } else {
-            Ok(())
-        }
-    }
-}
-
-/// Dispatch between a real writer and a mock writer.
-#[non_exhaustive]
-#[derive(Debug)]
-pub enum Type<S> {
-    /// The mock writer, enabled for unit tests only.
-    #[cfg(feature = "unit")]
-    Mock(Mock),
-    /// The production writer.
-    Real(Writer<S>),
-}
-
-impl<S> Type<S>
-where
-    S: AsyncWrite,
-{
-    /// Write every balance to the sink, dispatching on the variant.
-    ///
-    /// # Errors
-    ///
-    /// Returns the inner variant's error.
-    #[inline]
-    pub async fn write_all(
-        &mut self,
-        balances: &[AccountBalance],
-        cancel: &CancellationToken,
-    ) -> Result<(), WriteDispatchError> {
-        match self {
-            #[cfg(feature = "unit")]
-            Self::Mock(inner) => inner.write_all(balances, cancel).await.map_err(Into::into),
-            Self::Real(inner) => inner.write_all(balances, cancel).await.map_err(Into::into),
-        }
-    }
-}
-
-/// Format one account balance into `buf`, returning the number of bytes
-/// written.
-fn format_row(balance: &AccountBalance, buf: &mut [u8]) -> Result<usize, FormatError> {
-    let mut pos = 0_usize;
-
-    write_uint_padded(buf, &mut pos, i128::from(*balance.client()), 0_usize)
+/// Format one account balance into `buf` at `pos`, advancing `pos`.
+fn format_row(
+    balance: &AccountBalance,
+    buf: &mut [u8],
+    pos: &mut usize,
+) -> Result<(), FormatError> {
+    write_uint_padded(buf, pos, i128::from(*balance.client()), 0_usize)
         .map_err(FormatError::from)?;
-    push_byte!(buf, &mut pos, b',', FormatError::Overflow);
-    write_decimal(buf, &mut pos, *balance.available()).map_err(FormatError::from)?;
-    push_byte!(buf, &mut pos, b',', FormatError::Overflow);
-    write_decimal(buf, &mut pos, *balance.held()).map_err(FormatError::from)?;
-    push_byte!(buf, &mut pos, b',', FormatError::Overflow);
-    write_decimal(buf, &mut pos, *balance.total()).map_err(FormatError::from)?;
-    push_byte!(buf, &mut pos, b',', FormatError::Overflow);
+    push_byte!(buf, pos, b',', FormatError::Overflow);
+    write_decimal(buf, pos, *balance.available()).map_err(FormatError::from)?;
+    push_byte!(buf, pos, b',', FormatError::Overflow);
+    write_decimal(buf, pos, *balance.held()).map_err(FormatError::from)?;
+    push_byte!(buf, pos, b',', FormatError::Overflow);
+    write_decimal(buf, pos, *balance.total()).map_err(FormatError::from)?;
+    push_byte!(buf, pos, b',', FormatError::Overflow);
 
     let locked: &[u8] = if balance.locked() { b"true" } else { b"false" };
     for &byte in locked {
-        push_byte!(buf, &mut pos, byte, FormatError::Overflow);
+        push_byte!(buf, pos, byte, FormatError::Overflow);
     }
 
-    push_byte!(buf, &mut pos, b'\n', FormatError::Overflow);
+    push_byte!(buf, pos, b'\n', FormatError::Overflow);
 
-    Ok(pos)
+    Ok(())
 }
 
 /// Renders a decimal in its shortest canonical form (normalized, no trailing

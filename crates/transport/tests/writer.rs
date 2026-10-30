@@ -10,7 +10,7 @@ mod tests {
     use rust_decimal::Decimal;
     use std::str::FromStr as _;
     use tokio_util::sync::CancellationToken;
-    use transport::{WriteError, Writer};
+    use transport::{WriteBatchError, Writer};
 
     /// Build an account balance row for an input to the writer.
     fn balance(
@@ -27,18 +27,18 @@ mod tests {
         })?)
     }
 
-    /// Drive the writer over `balances`, returning the exact emitted bytes as a
-    /// string.
-    async fn write_all(balances: &[AccountBalance]) -> anyhow::Result<String> {
+    /// Drive the writer over `balances` into an in-memory sink, returning the
+    /// exact emitted bytes as a string.
+    async fn render(balances: &[AccountBalance]) -> anyhow::Result<String> {
         let token = CancellationToken::new();
         let mut writer = Writer::from(Vec::from([]));
-        writer.write_all(balances, &token).await?;
+        writer.write_batch(balances, &token).await?;
         Ok(String::from_utf8(writer.into_inner())?)
     }
 
     #[rudzio::test]
     async fn header_only_emits_header(_ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
-        let output = write_all(&[]).await?;
+        let output = render(&[]).await?;
         anyhow::ensure!(
             output == "client,available,held,total,locked\n",
             "unexpected header-only output: {output:?}"
@@ -54,7 +54,7 @@ mod tests {
             balance(1, "1.5", "0.0", false)?,
             balance(2, "2.0", "0.0", false)?,
         ];
-        let output = write_all(&balances).await?;
+        let output = render(&balances).await?;
         anyhow::ensure!(
             output == "client,available,held,total,locked\n1,1.5,0,1.5,false\n2,2,0,2,false\n",
             "unexpected output: {output:?}"
@@ -67,7 +67,7 @@ mod tests {
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
         let balances = [balance(1, "2.0000", "1.0000", true)?];
-        let output = write_all(&balances).await?;
+        let output = render(&balances).await?;
         anyhow::ensure!(
             output == "client,available,held,total,locked\n1,2,1,3,true\n",
             "unexpected output: {output:?}"
@@ -83,10 +83,10 @@ mod tests {
         token.cancel();
         let mut writer = Writer::from(Vec::from([]));
         let result = writer
-            .write_all(&[balance(1, "1.5", "0.0", false)?], &token)
+            .write_batch(&[balance(1, "1.5", "0.0", false)?], &token)
             .await;
         anyhow::ensure!(
-            matches!(result, Err(WriteError::Cancelled)),
+            matches!(result, Err(WriteBatchError::Cancelled)),
             "expected cancelled, got {result:?}"
         );
         Ok(())

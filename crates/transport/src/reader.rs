@@ -1,12 +1,12 @@
-//! The transaction reader contract: an owned stream over an async byte source,
-//! dispatched between the real reader and a unit-test mock.
+//! The transaction reader contract: an owned, batched stream over an async
+//! byte source.
 
 use compio::buf::{BufResult, IntoInner as _, IoBufMut as _};
 use compio::io::{AsyncRead, AsyncReadAt as _, AsyncReadExt as _};
 use record_processor_domain::client_id::ClientId;
 use record_processor_domain::input::{Amount, ConstructionError, Transaction, TxId};
 use rust_decimal::Decimal;
-use service::TransactionStream;
+use service::{TransactionBatch, TransactionStream};
 use std::str::FromStr as _;
 use tokio_util::sync::CancellationToken;
 
@@ -34,10 +34,16 @@ macro_rules! reject_amount {
 /// Extra bytes reserved on the read buffer before each refill.
 const READ_CHUNK: usize = 64;
 
-/// Failure to read from the production reader.
+/// Maximum transactions yielded in one batch (the reused parsed array).
+const BATCH_CAP: usize = 32;
+
+/// Failure to pull the next batch from the production reader.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum ReadError {
+pub enum NextBatchError {
+    /// A batch contained more rows than the reused array holds.
+    #[error("transaction batch overflowed the reused array")]
+    BatchOverflow,
     /// The stream was cancelled before it exhausted.
     #[error("transaction reader cancelled")]
     Cancelled,
@@ -103,29 +109,6 @@ pub enum RecordError {
     Utf8(#[from] std::str::Utf8Error),
 }
 
-/// Failure to read from the mock reader.
-#[cfg(feature = "unit")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[non_exhaustive]
-pub enum MockReadError {
-    /// The stream was cancelled before it exhausted.
-    #[error("transaction reader cancelled")]
-    Cancelled,
-}
-
-/// Failure to read from a dispatched reader.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum ReadDispatchError {
-    /// The mock reader failed.
-    #[cfg(feature = "unit")]
-    #[error(transparent)]
-    Mock(#[from] MockReadError),
-    /// The production reader failed.
-    #[error(transparent)]
-    Real(#[from] ReadError),
-}
-
 /// The owned byte source of the production reader.
 ///
 /// `compio::fs::File` is positional (`AsyncReadAt`) and has no sequential
@@ -158,17 +141,23 @@ impl<S> From<compio::fs::File> for Input<S> {
 /// stream: its `Stream` impl demands `R: AsyncRead + 'static`, which a generic
 /// source cannot name without the forbidden `'static` token, and the header
 /// state, the end-of-input marker and the per-call cancellation check have no
-/// place in a `Framer`/`Decoder` pair.
+/// place in a `Framer`/`Decoder` pair. Batches are pulled rather than a
+/// lending `Stream`, so the reused buffers can be borrowed zero-copy.
 #[derive(Debug)]
 pub struct Reader<S> {
-    /// Bytes read but not yet consumed as a complete record.
+    /// Bytes read but not yet consumed as complete records.
     buffer: Vec<u8>,
+    /// Bytes in `buffer` already yielded by the previous batch, drained on the
+    /// next pull once their borrow has ended.
+    consumed: usize,
     /// Whether the source has reached end-of-input.
     eof: bool,
     /// Whether the end-of-input marker has been yielded.
     eof_yielded: bool,
     /// Whether the header row has been consumed.
     header_seen: bool,
+    /// The reused array of parsed transactions for the current batch.
+    parsed: [Transaction; BATCH_CAP],
     /// The owned byte source the real reader consumes.
     source: Input<S>,
 }
@@ -178,9 +167,11 @@ impl<S> From<Input<S>> for Reader<S> {
     fn from(source: Input<S>) -> Self {
         Self {
             buffer: Vec::from([]),
+            consumed: 0_usize,
             eof: false,
             eof_yielded: false,
             header_seen: false,
+            parsed: [Transaction::Eof; BATCH_CAP],
             source,
         }
     }
@@ -227,115 +218,111 @@ impl<S> TransactionStream for Reader<S>
 where
     S: AsyncRead,
 {
-    type Error = ReadError;
+    type Error = NextBatchError;
 
     #[inline]
-    async fn next(
+    async fn next_batch(
         &mut self,
         cancel: &CancellationToken,
-    ) -> Result<Option<Transaction>, Self::Error> {
+    ) -> Result<Option<TransactionBatch<'_>>, Self::Error> {
         if cancel.is_cancelled() {
-            return Err(ReadError::Cancelled);
+            return Err(NextBatchError::Cancelled);
         }
+        // Reclaim the bytes the previous batch borrowed; its lifetime has ended
+        // by the time this call re-enters.
+        self.buffer.drain(..self.consumed).for_each(drop);
+        self.consumed = 0_usize;
+
         loop {
-            if let Some(newline) = self.buffer.iter().position(|&byte| byte == b'\n') {
+            // Parse every complete (newline-terminated) row into the reused
+            // array, recording how many bytes were consumed.
+            let mut count = 0_usize;
+            let mut consumed = 0_usize;
+            while let Some(relative) = self
+                .buffer
+                .get(consumed..)
+                .and_then(|tail| tail.iter().position(|&byte| byte == b'\n'))
+            {
+                let newline = consumed
+                    .checked_add(relative)
+                    .ok_or(NextBatchError::BatchOverflow)?;
                 let payload = match newline.checked_sub(1) {
                     Some(prev) if self.buffer.get(prev) == Some(&b'\r') => prev,
                     _ => newline,
                 };
-                let record = parse_record(self.buffer.split_at(payload).0, &mut self.header_seen)
-                    .map_err(ReadError::Record)?;
-                self.buffer.drain(..=newline).for_each(drop);
+                let line = self
+                    .buffer
+                    .get(consumed..payload)
+                    .ok_or(NextBatchError::BatchOverflow)?;
+                let record =
+                    parse_record(line, &mut self.header_seen).map_err(NextBatchError::Record)?;
                 if let Some(transaction) = record {
-                    return Ok(Some(transaction));
+                    *self
+                        .parsed
+                        .get_mut(count)
+                        .ok_or(NextBatchError::BatchOverflow)? = transaction;
+                    count = count.checked_add(1).ok_or(NextBatchError::BatchOverflow)?;
                 }
-                continue;
+                consumed = newline
+                    .checked_add(1)
+                    .ok_or(NextBatchError::BatchOverflow)?;
+            }
+            self.consumed = consumed;
+
+            if count > 0 {
+                let raw = self
+                    .buffer
+                    .get(..self.consumed)
+                    .ok_or(NextBatchError::BatchOverflow)?;
+                let transactions = self
+                    .parsed
+                    .get(..count)
+                    .ok_or(NextBatchError::BatchOverflow)?;
+                return Ok(Some(TransactionBatch { raw, transactions }));
             }
 
             if self.eof {
-                if self.buffer.is_empty() {
-                    if self.eof_yielded {
-                        return Ok(None);
+                if !self.buffer.is_empty() {
+                    // Trailing row (no trailing newline): parse it as the last
+                    // record, then fall through to the end-of-input marker.
+                    let record = parse_record(self.buffer.as_slice(), &mut self.header_seen)
+                        .map_err(NextBatchError::Record)?;
+                    self.consumed = self.buffer.len();
+                    if let Some(transaction) = record {
+                        *self
+                            .parsed
+                            .get_mut(0)
+                            .ok_or(NextBatchError::BatchOverflow)? = transaction;
+                        let raw = self
+                            .buffer
+                            .get(..self.consumed)
+                            .ok_or(NextBatchError::BatchOverflow)?;
+                        let transactions =
+                            self.parsed.get(..1).ok_or(NextBatchError::BatchOverflow)?;
+                        return Ok(Some(TransactionBatch { raw, transactions }));
                     }
-                    self.eof_yielded = true;
-                    return Ok(Some(Transaction::Eof));
+                    self.buffer.drain(..).for_each(drop);
+                    self.consumed = 0_usize;
+                    continue;
                 }
-                let record =
-                    parse_record(&self.buffer, &mut self.header_seen).map_err(ReadError::Record)?;
-                self.buffer.drain(..).for_each(drop);
-                if let Some(transaction) = record {
-                    return Ok(Some(transaction));
+                if self.eof_yielded {
+                    return Ok(None);
                 }
-                continue;
+                self.eof_yielded = true;
+                *self
+                    .parsed
+                    .get_mut(0)
+                    .ok_or(NextBatchError::BatchOverflow)? = Transaction::Eof;
+                let transactions = self.parsed.get(..1).ok_or(NextBatchError::BatchOverflow)?;
+                return Ok(Some(TransactionBatch {
+                    raw: &[],
+                    transactions,
+                }));
             }
 
-            if self.fill().await.map_err(ReadError::Fill)? == 0 {
+            if self.fill().await.map_err(NextBatchError::Fill)? == 0 {
                 self.eof = true;
             }
-        }
-    }
-}
-
-/// The mock transaction reader, enabled for unit tests only. It yields at most
-/// one transaction (set at construction) and then terminates.
-#[cfg(feature = "unit")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Mock {
-    /// The single transaction to yield, then `None`.
-    item: Option<Transaction>,
-}
-
-#[cfg(feature = "unit")]
-impl From<Option<Transaction>> for Mock {
-    #[inline]
-    fn from(item: Option<Transaction>) -> Self {
-        Self { item }
-    }
-}
-
-#[cfg(feature = "unit")]
-impl TransactionStream for Mock {
-    type Error = MockReadError;
-
-    #[inline]
-    async fn next(
-        &mut self,
-        cancel: &CancellationToken,
-    ) -> Result<Option<Transaction>, Self::Error> {
-        if cancel.is_cancelled() {
-            Err(MockReadError::Cancelled)
-        } else {
-            Ok(self.item.take())
-        }
-    }
-}
-
-/// Dispatch between a real reader and a mock reader.
-#[non_exhaustive]
-#[derive(Debug)]
-pub enum Type<S> {
-    /// The mock reader, enabled for unit tests only.
-    #[cfg(feature = "unit")]
-    Mock(Mock),
-    /// The production reader.
-    Real(Reader<S>),
-}
-
-impl<S> TransactionStream for Type<S>
-where
-    S: AsyncRead,
-{
-    type Error = ReadDispatchError;
-
-    #[inline]
-    async fn next(
-        &mut self,
-        cancel: &CancellationToken,
-    ) -> Result<Option<Transaction>, Self::Error> {
-        match self {
-            #[cfg(feature = "unit")]
-            Self::Mock(inner) => inner.next(cancel).await.map_err(Into::into),
-            Self::Real(inner) => inner.next(cancel).await.map_err(Into::into),
         }
     }
 }

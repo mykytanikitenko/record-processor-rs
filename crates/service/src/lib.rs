@@ -6,13 +6,7 @@ pub mod serve;
 pub mod service;
 pub mod transaction_stream;
 
-#[cfg(feature = "unit")]
-pub use balance_stream::MockBalances;
-pub use balance_stream::{
-    BalanceStream, Balances, BalancesError, MockBalancesError, RealBalances, RealBalancesError,
-};
+pub use balance_stream::{BalanceStream, RealBalances, RealBalancesError};
 pub use serve::EngineError;
-pub use service::{Engine, ServeDispatchError, ServeError, Service, Type as ServiceType};
-#[cfg(feature = "unit")]
-pub use service::{Mock, MockServiceError};
-pub use transaction_stream::TransactionStream;
+pub use service::{Engine, ServeError, Service};
+pub use transaction_stream::{TransactionBatch, TransactionStream};

@@ -55,10 +55,10 @@ pub enum ProcessError {
     Serve(#[from] service::ServeError),
     /// The balance stream failed while producing balances.
     #[error(transparent)]
-    Stream(#[from] service::BalancesError),
+    Stream(#[from] service::RealBalancesError),
     /// Writing the account balances failed.
     #[error(transparent)]
-    Write(#[from] transport::WriteError),
+    Write(#[from] transport::WriteBatchError),
 }
 
 /// Wait for either SIGINT or SIGTERM, then cancel the token.
@@ -84,7 +84,7 @@ where
     let mut balances = service::Engine.serve(reader, token).await?;
     let mut writer = transport::Writer::from(compio::fs::stdout());
     while let Some(balance) = balances.next(token).await? {
-        writer.write_all(&[balance], token).await?;
+        writer.write_batch(&[balance], token).await?;
     }
     Ok(())
 }

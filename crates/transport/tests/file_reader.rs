@@ -32,9 +32,15 @@ mod tests {
         let token = CancellationToken::new();
         let mut transactions = Vec::new();
         loop {
-            match reader.next(&token).await? {
-                Some(Transaction::Eof) => {}
-                Some(transaction) => transactions.push(transaction),
+            match reader.next_batch(&token).await? {
+                Some(batch) => {
+                    for &transaction in batch.transactions {
+                        if transaction == Transaction::Eof {
+                            continue;
+                        }
+                        transactions.push(transaction);
+                    }
+                }
                 None => return Ok(transactions),
             }
         }

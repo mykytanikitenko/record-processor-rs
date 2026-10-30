@@ -21,10 +21,6 @@ anyhow.workspace = true
 rudzio.workspace = true
 rust_decimal.workspace = true
 
-[features]
-default = ["unit"]
-unit = []
-
 [[test]]
 name = "main"
 path = "tests/main.rs"

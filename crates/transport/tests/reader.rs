@@ -13,7 +13,7 @@ mod tests {
     use service::TransactionStream as _;
     use std::str::FromStr as _;
     use tokio_util::sync::CancellationToken;
-    use transport::{Input, ReadError, Reader, RecordError};
+    use transport::{Input, NextBatchError, Reader, RecordError};
 
     /// A byte source that yields at most `chunk` bytes per read, forcing the
     /// reader to reassemble records across buffer refills.
@@ -50,12 +50,15 @@ mod tests {
     }
 
     /// Drive a reader over `input` until the first error is produced.
-    async fn first_error(input: &[u8]) -> anyhow::Result<ReadError> {
+    async fn first_error(input: &[u8]) -> anyhow::Result<NextBatchError> {
         let token = CancellationToken::new();
         let mut reader = Reader::from(Input::Stream(input));
-        match reader.next(&token).await {
-            Err(error) => Ok(error),
-            Ok(item) => anyhow::bail!("expected an error, got {item:?}"),
+        loop {
+            match reader.next_batch(&token).await {
+                Err(error) => return Ok(error),
+                Ok(None) => anyhow::bail!("expected an error, got end-of-input"),
+                Ok(Some(_)) => {}
+            }
         }
     }
 
@@ -66,9 +69,15 @@ mod tests {
         let mut reader = Reader::from(Input::Stream(source));
         let mut transactions = Vec::new();
         loop {
-            match reader.next(&token).await? {
-                Some(Transaction::Eof) => {}
-                Some(transaction) => transactions.push(transaction),
+            match reader.next_batch(&token).await? {
+                Some(batch) => {
+                    for &transaction in batch.transactions {
+                        if transaction == Transaction::Eof {
+                            continue;
+                        }
+                        transactions.push(transaction);
+                    }
+                }
                 None => return Ok(transactions),
             }
         }
@@ -80,13 +89,45 @@ mod tests {
     ) -> anyhow::Result<()> {
         let token = CancellationToken::new();
         let mut reader = Reader::from(Input::Stream(b"type,client,tx,amount\n".as_slice()));
+        let batch = reader
+            .next_batch(&token)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("expected the end-of-input marker"))?;
         anyhow::ensure!(
-            matches!(reader.next(&token).await, Ok(Some(Transaction::Eof))),
-            "expected the end-of-input marker"
+            batch.transactions == [Transaction::Eof],
+            "expected the end-of-input marker, got {batch:?}"
+        );
+        anyhow::ensure!(batch.raw.is_empty(), "expected empty raw for the marker");
+        anyhow::ensure!(
+            reader.next_batch(&token).await?.is_none(),
+            "expected termination after the end-of-input marker"
+        );
+        Ok(())
+    }
+
+    #[rudzio::test]
+    async fn single_batch_holds_multiple_rows(
+        _ctx: &rudzio::common::context::Test,
+    ) -> anyhow::Result<()> {
+        let token = CancellationToken::new();
+        let input = b"type,client,tx,amount\ndeposit,1,1,1.0\ndeposit,2,2,2.5\ndeposit,3,3,3.5\n";
+        let mut reader = Reader::from(Input::Stream(input.as_slice()));
+        let batch = reader
+            .next_batch(&token)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("expected a batch"))?;
+        anyhow::ensure!(
+            batch.transactions
+                == [
+                    deposit(1, 1, "1.0")?,
+                    deposit(2, 2, "2.5")?,
+                    deposit(3, 3, "3.5")?,
+                ],
+            "unexpected batch: {batch:?}"
         );
         anyhow::ensure!(
-            matches!(reader.next(&token).await, Ok(None)),
-            "expected termination after the end-of-input marker"
+            batch.raw == input.as_slice(),
+            "unexpected raw bytes: {batch:?}"
         );
         Ok(())
     }
@@ -149,7 +190,10 @@ mod tests {
         token.cancel();
         let mut reader = Reader::from(Input::Stream(b"type,client,tx,amount\n".as_slice()));
         anyhow::ensure!(
-            matches!(reader.next(&token).await, Err(ReadError::Cancelled)),
+            matches!(
+                reader.next_batch(&token).await,
+                Err(NextBatchError::Cancelled)
+            ),
             "expected a cancelled error"
         );
         Ok(())
@@ -159,7 +203,7 @@ mod tests {
     async fn unknown_type_is_rejected(_ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\nmystery,1,1,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::UnknownType)),
+            matches!(error, NextBatchError::Record(RecordError::UnknownType)),
             "expected unknown-type, got {error:?}"
         );
         Ok(())
@@ -169,7 +213,7 @@ mod tests {
     async fn literal_eof_is_rejected(_ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\neof,1,1,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::UnknownType)),
+            matches!(error, NextBatchError::Record(RecordError::UnknownType)),
             "expected unknown-type for a literal `eof`, got {error:?}"
         );
         Ok(())
@@ -181,7 +225,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\ndispute,1,1,5.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::UnexpectedAmount)),
+            matches!(error, NextBatchError::Record(RecordError::UnexpectedAmount)),
             "expected unexpected-amount, got {error:?}"
         );
         Ok(())
@@ -193,7 +237,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\ndeposit,1,1\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::MissingAmount)),
+            matches!(error, NextBatchError::Record(RecordError::MissingAmount)),
             "expected missing-amount, got {error:?}"
         );
         Ok(())
@@ -207,7 +251,7 @@ mod tests {
         anyhow::ensure!(
             matches!(
                 error,
-                ReadError::Record(RecordError::Amount(ConstructionError::NonPositive { .. }))
+                NextBatchError::Record(RecordError::Amount(ConstructionError::NonPositive { .. }))
             ),
             "expected non-positive amount, got {error:?}"
         );
@@ -220,7 +264,7 @@ mod tests {
         anyhow::ensure!(
             matches!(
                 error,
-                ReadError::Record(RecordError::Amount(ConstructionError::NonPositive { .. }))
+                NextBatchError::Record(RecordError::Amount(ConstructionError::NonPositive { .. }))
             ),
             "expected non-positive amount, got {error:?}"
         );
@@ -235,7 +279,7 @@ mod tests {
         anyhow::ensure!(
             matches!(
                 error,
-                ReadError::Record(RecordError::Amount(
+                NextBatchError::Record(RecordError::Amount(
                     ConstructionError::TooManyDecimalPlaces { .. }
                 ))
             ),
@@ -250,7 +294,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\ndeposit,abc,1,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::Client(_))),
+            matches!(error, NextBatchError::Record(RecordError::Client(_))),
             "expected invalid-client, got {error:?}"
         );
         Ok(())
@@ -262,7 +306,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\ndeposit,1,xyz,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::Tx(_))),
+            matches!(error, NextBatchError::Record(RecordError::Tx(_))),
             "expected invalid-transaction, got {error:?}"
         );
         Ok(())
@@ -274,7 +318,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\ndeposit,65536,1,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::Client(_))),
+            matches!(error, NextBatchError::Record(RecordError::Client(_))),
             "expected invalid-client, got {error:?}"
         );
         Ok(())
@@ -284,7 +328,7 @@ mod tests {
     async fn tx_over_u32_is_rejected(_ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\ndeposit,1,4294967296,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::Tx(_))),
+            matches!(error, NextBatchError::Record(RecordError::Tx(_))),
             "expected invalid-transaction, got {error:?}"
         );
         Ok(())
@@ -294,7 +338,7 @@ mod tests {
     async fn wrong_header_is_rejected(_ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
         let error = first_error(b"foo,bar,baz,qux\ndeposit,1,1,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::Header)),
+            matches!(error, NextBatchError::Record(RecordError::Header)),
             "expected header error, got {error:?}"
         );
         Ok(())
