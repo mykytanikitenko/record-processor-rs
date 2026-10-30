@@ -1,45 +1,78 @@
-//! Production storage stub tests: every method returns `Unimplemented`.
+//! Storage integration tests against the production backend's trait API.
 
 use rudzio::common::context::Suite;
 use rudzio::runtime::futures::ThreadPool;
 
 #[rudzio::suite([(runtime = ThreadPool::new, suite = Suite, test = rudzio::common::context::Test)])]
 mod tests {
+    use record_processor_domain::client_id::ClientId;
     use record_processor_domain::input::{Transaction, TxId};
+    use record_processor_domain::output::{AccountBalance, Balance, Parts};
     use storage::{
-        DedupIndex as _, EndOfInput as _, EndOfInputError, EventQueue as _, IndexError,
-        KvState as _, NextEntryError, QueueError, StateError, Storage,
+        DedupIndex as _, EndOfInput as _, EventQueue as _, IndexInsertError, KvState as _,
+        NextEntryError, QueueAppendError, QueueReadError, SignalNotifyError, SignalWaitError,
+        StateReadError, StateWriteError, Storage,
     };
     use tokio_util::sync::CancellationToken;
 
     #[rudzio::test]
-    async fn event_queue_is_unimplemented(
+    async fn event_queue_append_batch_is_unimplemented(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
+        let token = CancellationToken::new();
         let mut storage = Storage;
-        let appended = storage.append(&Transaction::Eof).await;
+        let appended = storage.append_batch(&[Transaction::Eof], &token).await;
         anyhow::ensure!(
-            appended == Err(QueueError::Unimplemented),
+            appended == Err(QueueAppendError::Unimplemented),
             "expected Unimplemented, got {appended:?}"
         );
-        let mut buf = [0_u8; 16];
-        let read = storage.read_batch(&mut buf).await;
+        Ok(())
+    }
+
+    #[rudzio::test]
+    async fn event_queue_read_batch_is_unimplemented(
+        _ctx: &rudzio::common::context::Test,
+    ) -> anyhow::Result<()> {
+        let token = CancellationToken::new();
+        let mut storage = Storage;
+        let mut events = [Transaction::Eof; 4];
+        let read = storage.read_batch(0, &mut events, &token).await;
         anyhow::ensure!(
-            read == Err(QueueError::Unimplemented),
+            read == Err(QueueReadError::Unimplemented),
             "expected Unimplemented, got {read:?}"
         );
         Ok(())
     }
 
     #[rudzio::test]
-    async fn dedup_index_is_unimplemented(
+    async fn dedup_insert_is_unimplemented(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
+        let token = CancellationToken::new();
         let mut storage = Storage;
-        let inserted = storage.insert(&TxId::from(1)).await;
+        let inserted = storage.insert(TxId::from(1), &token).await;
         anyhow::ensure!(
-            inserted == Err(IndexError::Unimplemented),
+            inserted == Err(IndexInsertError::Unimplemented),
             "expected Unimplemented, got {inserted:?}"
+        );
+        Ok(())
+    }
+
+    #[rudzio::test]
+    async fn end_of_input_is_unimplemented(
+        _ctx: &rudzio::common::context::Test,
+    ) -> anyhow::Result<()> {
+        let token = CancellationToken::new();
+        let mut storage = Storage;
+        let notified = storage.notify(0, &token).await;
+        anyhow::ensure!(
+            notified == Err(SignalNotifyError::Unimplemented),
+            "expected Unimplemented, got {notified:?}"
+        );
+        let waited = storage.wait(&token).await;
+        anyhow::ensure!(
+            waited == Err(SignalWaitError::Unimplemented),
+            "expected Unimplemented, got {waited:?}"
         );
         Ok(())
     }
@@ -48,25 +81,21 @@ mod tests {
     async fn kv_state_is_unimplemented(_ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
         let token = CancellationToken::new();
         let mut storage = Storage;
-        let balance = record_processor_domain::output::AccountBalance::try_from(
-            record_processor_domain::output::Parts {
-                client: record_processor_domain::client_id::ClientId::from(1),
-                available: record_processor_domain::output::Balance::from(
-                    rust_decimal::Decimal::ONE,
-                ),
-                held: record_processor_domain::output::Balance::from(rust_decimal::Decimal::ZERO),
-                locked: false,
-            },
-        )?;
-        let updated = storage
-            .update(
-                record_processor_domain::client_id::ClientId::from(1),
-                &balance,
-            )
-            .await;
+        let balance = AccountBalance::try_from(Parts {
+            client: ClientId::from(1),
+            available: Balance::from(rust_decimal::Decimal::ONE),
+            held: Balance::from(rust_decimal::Decimal::ZERO),
+            locked: false,
+        })?;
+        let written = storage.write(ClientId::from(1), &balance, &token).await;
         anyhow::ensure!(
-            updated == Err(StateError::Unimplemented),
-            "expected Unimplemented, got {updated:?}"
+            written == Err(StateWriteError::Unimplemented),
+            "expected Unimplemented, got {written:?}"
+        );
+        let read = storage.read(ClientId::from(1), &token).await;
+        anyhow::ensure!(
+            read == Err(StateReadError::Unimplemented),
+            "expected Unimplemented, got {read:?}"
         );
         let mut entries = storage.entries();
         let first = entries.next(&token).await;
@@ -91,24 +120,6 @@ mod tests {
         anyhow::ensure!(
             first == Err(NextEntryError::Cancelled),
             "expected Cancelled, got {first:?}"
-        );
-        Ok(())
-    }
-
-    #[rudzio::test]
-    async fn end_of_input_is_unimplemented(
-        _ctx: &rudzio::common::context::Test,
-    ) -> anyhow::Result<()> {
-        let mut storage = Storage;
-        let notified = storage.notify().await;
-        anyhow::ensure!(
-            notified == Err(EndOfInputError::Unimplemented),
-            "expected Unimplemented, got {notified:?}"
-        );
-        let waited = storage.wait().await;
-        anyhow::ensure!(
-            waited == Err(EndOfInputError::Unimplemented),
-            "expected Unimplemented, got {waited:?}"
         );
         Ok(())
     }
