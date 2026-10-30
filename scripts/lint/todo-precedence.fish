@@ -28,6 +28,10 @@ set -a sources module-only tmp/module-only.ndjson
 set -a sources no-new-get tmp/no-new-get.ndjson
 set -a sources no-static-lifetime tmp/no-static-lifetime.ndjson
 set -a sources no-tokio-runtime tmp/no-tokio-runtime.ndjson
+set -a sources no-manual-fmt tmp/no-manual-fmt.ndjson
+set -a sources no-std-io tmp/no-std-io.ndjson
+set -a sources no-implicit-alloc tmp/no-implicit-alloc.ndjson
+set -a sources no-materialize tmp/no-materialize.ndjson
 set -a sources clippy tmp/clippy.json
 
 # Normalized findings: {source, file, line, ruleId, message}. ast-grep

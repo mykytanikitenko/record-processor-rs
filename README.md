@@ -142,9 +142,12 @@ Recorded decisions, each with the reasoning that settled it:
 
 ## Status
 
-The domain model (`input` transactions and `output` balances) is implemented
-and tested; `just build`, `just lint`, and `just test` are green. The engine
-(`storage`, `service`, `transport`) is not yet implemented.
+The step-1 traits contract is landed: `service`, `transport`, and `storage`
+traits with `Real`/`Mock` dispatch, cancellation plumbing, and CLI wiring are
+in place; `just build` and `just lint` are green. The transport layer is being
+rewritten (Compio `Framed` + `csv-core`). The engine (business logic) is not
+implemented — `serve` is a contract stub returning `EngineError::Unimplemented`
+— so the e2e success fixtures fail until the engine lands.
 
 ## End-to-end tests
 
@@ -190,6 +193,81 @@ guessed at. See each `case.toml` for the precise question; the ids are
 `mismatched-client-reference`, `duplicate-tx-id`, `redispute-after-resolve`,
 `dispute-after-chargeback`, `double-dispute`, `dispute-failed-withdrawal`,
 and `ignored-row-client-output`.
+
+## Open decisions for review
+
+Collected here for operator review: each entry records the id, the open
+question, the current behaviour, and where the decision lives. The eleven
+fixture cases are `pending-decision` in the e2e corpus — the harness fails
+loudly with `pending decision <id>: <question>` (`tests/e2e/cases.rs:76`)
+without running the binary, so their current behaviour is "not decided"; no
+engine code implements them yet.
+
+- **`failed-withdrawal-new-client`** — When a withdrawal targets a client with
+  no prior record (and so has zero available funds), should that client appear
+  in the output as a zero-balance row, or be omitted entirely?
+  - Current behaviour: not decided; e2e case `033` fails loudly.
+  - Decided in: not implemented yet.
+- **`dispute-withdrawal`** — Can a dispute reference a withdrawal transaction?
+  If so, does disputing a withdrawal reverse the debit (returning funds to
+  available), or is dispute only meaningful for deposits?
+  - Current behaviour: not decided; e2e case `080` fails loudly.
+  - Decided in: not implemented yet.
+- **`dispute-insufficient-available`** — When a dispute references a deposit
+  whose amount exceeds the client's current available funds (part already
+  withdrawn), should the dispute fail, drive available negative, or be clamped?
+  - Current behaviour: not decided; e2e case `081` fails loudly.
+  - Decided in: not implemented yet.
+- **`locked-account-operations`** — After a chargeback locks an account, should
+  subsequent deposits, withdrawals, disputes, and resolves on that account be
+  rejected, or still applied?
+  - Current behaviour: not decided; e2e case `082` fails loudly.
+  - Decided in: not implemented yet.
+- **`mismatched-client-reference`** — When a dispute/resolve/chargeback row
+  names a client that differs from the client of the referenced transaction,
+  which is authoritative — the row's client or the transaction's client?
+  - Current behaviour: not decided; e2e case `083` fails loudly.
+  - Decided in: not implemented yet.
+- **`duplicate-tx-id`** — When a transaction id is reused by a later row, should
+  the later row be ignored, treated as an error, or applied?
+  - Current behaviour: not decided; e2e case `084` fails loudly.
+  - Decided in: not implemented yet (see the dedup-index note below).
+- **`redispute-after-resolve`** — After a dispute has been resolved, can the
+  same transaction be disputed again?
+  - Current behaviour: not decided; e2e case `085` fails loudly.
+  - Decided in: not implemented yet.
+- **`dispute-after-chargeback`** — After a chargeback finalizes a dispute and
+  locks the account, can the same transaction be disputed again?
+  - Current behaviour: not decided; e2e case `086` fails loudly.
+  - Decided in: not implemented yet.
+- **`double-dispute`** — Should disputing the same transaction twice hold the
+  funds twice, ignore the second dispute, or be treated as an error?
+  - Current behaviour: not decided; e2e case `087` fails loudly.
+  - Decided in: not implemented yet.
+- **`dispute-failed-withdrawal`** — Can a dispute reference a withdrawal that
+  failed for insufficient funds? If so, what is disputed — nothing (the
+  withdrawal never changed balances) or the attempted amount?
+  - Current behaviour: not decided; e2e case `088` fails loudly.
+  - Decided in: not implemented yet.
+- **`ignored-row-client-output`** — When a client appears only in rows that are
+  ignored (a dispute/resolve/chargeback of an unknown transaction), should that
+  client appear as a zero-balance row in the output, or be omitted?
+  - Current behaviour: not decided; e2e case `089` fails loudly.
+  - Decided in: not implemented yet.
+
+### Implementation questions
+
+- **`failed-transaction-bookkeeping`** — a failure in a single event must not
+  stop the pipeline; per-client state records failed transactions (tx id, kind,
+  reason) — format and output exposure undecided.
+  - Current behaviour: not implemented — no per-client failed-transaction state
+    exists.
+  - Decided in: not implemented yet.
+- **`duplicate-tx-id-dedup-index`** — duplicate tx id handling in the storage
+  dedup index (error) vs the fixture 084 question above.
+  - Current behaviour: the storage dedup index `Index::insert` returns
+    `IndexError::Duplicate(TxId)` for a reused transaction id.
+  - Decided in: `crates/storage/src/dedup.rs:11`.
 
 ## License
 
