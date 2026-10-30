@@ -1,18 +1,17 @@
-//! Payments-engine contract: transaction sources, balance streams, and the
-//! service that pipes one into the other.
+//! Payments-engine business logic over the storage contracts: ingest the
+//! transaction stream into the queue, aggregate the queue into per-client
+//! state, and stream the final balances.
 
+pub mod aggregation;
 pub mod balance_stream;
-pub mod serve;
-pub mod service;
+pub mod balances;
+pub mod engine;
+pub mod ingestion;
 pub mod transaction_stream;
 
-#[cfg(feature = "unit")]
-pub use balance_stream::MockBalances;
-pub use balance_stream::{
-    BalanceStream, Balances, BalancesError, MockBalancesError, RealBalances, RealBalancesError,
-};
-pub use serve::EngineError;
-pub use service::{Engine, ServeDispatchError, ServeError, Service, Type as ServiceType};
-#[cfg(feature = "unit")]
-pub use service::{Mock, MockServiceError};
+pub use aggregation::{AggregateError, LookupFailure, ReadFailure, UpdateFailure};
+pub use balance_stream::BalanceStream;
+pub use balances::{Balances, NextBalanceError, WalkFailure};
+pub use engine::Engine;
+pub use ingestion::{AppendFailure, IngestError, SourceFailure};
 pub use transaction_stream::TransactionStream;

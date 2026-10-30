@@ -53,9 +53,13 @@ derive_more = { version = "=2.1.1", default-features = false, features = [
   "debug",
   "deref",
 ] }
-futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+futures-util = { version = "=0.3.34", default-features = false, features = [
+  "std",
+] }
 libc = { version = "=0.2.191", default-features = false, features = [] }
-record-processor-domain = { path = "crates/domain", default-features = false, features = [] }
+mockall = { version = "=0.15.0", default-features = false, features = [] }
+record-processor-domain = { path = "crates/domain", default-features = false, features = [
+] }
 pico-args = { version = "=0.5.0", default-features = false, features = [] }
 rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "bb802e66864d39e434bfbaf015696a9c2a2a1662", default-features = false, features = [
   "runtime-futures",
@@ -71,10 +75,13 @@ serde = { version = "=1.0.229", default-features = false, features = [
   "std",
 ] }
 service = { path = "crates/service", default-features = false, features = [] }
+storage = { path = "crates/storage", default-features = false, features = [] }
 thiserror = { version = "=2.0.21", default-features = false, features = [
   "std",
 ] }
-tokio-util = { version = "=0.7.20", default-features = false, features = ["rt"] }
+tokio-util = { version = "=0.7.20", default-features = false, features = [
+  "rt",
+] }
 toml = { version = "=0.8.23", default-features = false, features = ["parse"] }
 transport = { path = "crates/transport", default-features = false, features = [
 ] }
@@ -127,7 +134,7 @@ unused_qualifications = "deny"
 unused_results = "deny"
 
 # Intentionally allowed
-async_fn_in_trait = "allow" # compio is thread-per-core; async trait methods return !Send futures
+async_fn_in_trait = "allow"        # compio is thread-per-core; async trait methods return !Send futures
 single_use_lifetimes = "allow"
 variant_size_differences = "allow"
 
