@@ -15,7 +15,6 @@ pub enum IndexError {
 }
 
 /// An index of seen transaction ids, rejecting duplicates.
-#[mockall::automock(type Error = IndexError;)]
 pub trait Index {
     /// The error produced by the index.
     type Error: core::fmt::Debug + core::fmt::Display;

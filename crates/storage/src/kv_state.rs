@@ -63,7 +63,6 @@ impl KvEntries {
 }
 
 /// Per-client account state, keyed by client id.
-#[mockall::automock(type Error = StateError;)]
 pub trait KvState {
     /// The error produced by the state.
     type Error: core::fmt::Debug + core::fmt::Display;

@@ -12,7 +12,6 @@ pub enum QueueError {
 }
 
 /// An append-only queue of events, each assigned a monotonic id on append.
-#[mockall::automock(type Error = QueueError;)]
 pub trait EventQueue {
     /// The error produced by the queue.
     type Error: core::fmt::Debug + core::fmt::Display;
