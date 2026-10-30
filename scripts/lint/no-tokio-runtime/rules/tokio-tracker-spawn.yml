@@ -1,0 +1,32 @@
+id: tokio-tracker-spawn
+language: Rust
+severity: error
+message: "forbidden `spawn*` on a `TaskTracker`; spawn through `compio::runtime::spawn(tracker.track_future(fut))` instead of a Tokio task spawn"
+rule:
+  any:
+    # Qualified calls: `TaskTracker::spawn*(...)`, `tokio_util::task::TaskTracker::spawn*(...)`, `rudzio::tokio_util::task::TaskTracker::spawn*(...)`.
+    - kind: scoped_identifier
+      regex: '(^|::)TaskTracker::(spawn|spawn_local|spawn_on|spawn_local_on|spawn_blocking|spawn_blocking_on)$'
+    # Method calls: `X.spawn*(...)` where the receiver's final name is `tracker`
+    # or `*_tracker` (e.g. `tracker.spawn(...)`, `self.tracker.spawn(...)`).
+    # ast-grep has no type information, so this approximates "receiver is a
+    # `TaskTracker`" by receiver *name*; a `compio::process::Command` chain such
+    # as `cmd.stdin(..)?.stdout(..)?.spawn()` has a non-`tracker` receiver and is
+    # left alone.
+    - kind: call_expression
+      has:
+        field: function
+        all:
+          - kind: field_expression
+          - has:
+              field: field
+              regex: '^(spawn|spawn_local|spawn_on|spawn_local_on|spawn_blocking|spawn_blocking_on)$'
+          - has:
+              field: value
+              any:
+                - kind: identifier
+                  regex: '^(tracker|.+_tracker)$'
+                - kind: field_expression
+                  has:
+                    field: field
+                    regex: '^(tracker|.+_tracker)$'

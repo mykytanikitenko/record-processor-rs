@@ -2,8 +2,9 @@
 # Full lint pipeline: format check + fish syntax + clippy + panic + non-fish +
 # no-suppressions + no-banner-comments + workspace-deps + yaml-lint + recipe
 # lint + non-rudzio + no-fallbacks + module-only + no-new-get +
-# no-static-lifetime + cargo-audit + cargo-deny + cargo-machete +
-# nix-provenance + forbidden-word. Rust findings are annotated in-place with
+# no-static-lifetime + no-tokio-runtime + cargo-audit + cargo-deny +
+# cargo-machete + nix-provenance + forbidden-word. Rust findings are annotated
+# in-place with
 # TODO(lint/<rule>) markers, then a TODO-precedence pass reports acknowledged
 # violations through the todo-comments rule. Fails while any finding remains.
 set -l _script_dir (status dirname)
@@ -106,7 +107,7 @@ end
 # (g) Justfile recipe lint
 set -l recipe_status 1
 set -l actual (just --dump --dump-format json --unstable | jq -r '.recipes | keys[]' | sort)
-set -l expected build clean fmt lint lint-no-implicit-alloc lint-no-manual-fmt lint-no-materialize lint-no-std-io test
+set -l expected build clean fmt lint lint-no-implicit-alloc lint-no-manual-fmt lint-no-materialize lint-no-std-io lint-no-tokio-runtime test
 if test (string join ' ' $actual) = (string join ' ' $expected)
     ok "recipe lint passed"
     set recipe_status 0
@@ -165,6 +166,11 @@ set -l nostaticlifetime_status 1
 fish "$_root/scripts/lint/no-static-lifetime.fish" "$_root/tmp/no-static-lifetime.ndjson"
 set nostaticlifetime_status $status
 
+# (o.0) no-tokio-runtime lint
+set -l notokio_status 1
+fish "$_root/scripts/lint/no-tokio-runtime.fish" "$_root/tmp/no-tokio-runtime.ndjson"
+set notokio_status $status
+
 # (o.1) cargo-audit (RustSec advisories, strictest deny policy)
 set -l audit_status 1
 fish "$_root/scripts/lint/cargo-audit.fish" "$_root/tmp/cargo-audit.ndjson"
@@ -216,6 +222,8 @@ fish "$_root/scripts/lint/no-new-get.fish" "$_root/tmp/no-new-get.ndjson" >/dev/
 set nonewget_status $status
 fish "$_root/scripts/lint/no-static-lifetime.fish" "$_root/tmp/no-static-lifetime.ndjson" >/dev/null 2>&1
 set nostaticlifetime_status $status
+fish "$_root/scripts/lint/no-tokio-runtime.fish" "$_root/tmp/no-tokio-runtime.ndjson" >/dev/null 2>&1
+set notokio_status $status
 
 # (r) TODO-precedence: drop marker-acknowledged Rust findings and emit the
 #     merged view to tmp/lint-findings.ndjson. Fails while anything remains.
@@ -225,7 +233,8 @@ set precedence_status $status
 
 # Summary. Rust sub-lints (clippy, panic, non-rudzio, no-suppressions,
 # no-banner-comments, no-fallbacks, module-only, no-new-get,
-# no-static-lifetime) read PASS/TODO/FAIL from the precedence status file;
+# no-static-lifetime, no-tokio-runtime) read PASS/TODO/FAIL from the precedence
+# status file;
 # non-Rust sub-lints use their own status vars. The
 # finding list and per-rule counts come from the merged view
 # tmp/lint-findings.ndjson.
