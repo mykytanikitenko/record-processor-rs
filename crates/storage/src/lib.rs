@@ -1,15 +1,11 @@
-//! Storage for the record-processor engine: an append-only event queue, a
-//! transaction-id deduplication index, an end-of-input signal and per-client
-//! state. Persistence only; every business rule lives in the service crate.
+//! Storage contracts: an append-only record queue and a key-value state store.
 
-pub mod dedup;
-pub mod eof;
-pub mod event_queue;
-pub mod kv_state;
-pub mod real;
+pub mod kv;
+pub mod mmap_kv;
+pub mod mmap_queue;
+pub mod queue;
 
-pub use dedup::{Index as DedupIndex, IndexInsertError, Insertion};
-pub use eof::{EndOfInput, SignalNotifyError, SignalWaitError};
-pub use event_queue::{EventQueue, IdRange, QueueAppendError, QueueReadError};
-pub use kv_state::{KvEntries, KvState, NextEntryError, StateReadError, StateWriteError};
-pub use real::Storage;
+pub use kv::{Entry, Kv, Lookup, Slot, Update, Walk};
+pub use mmap_kv::MmapKv;
+pub use mmap_queue::MmapQueue;
+pub use queue::{Append, Position, Queue, ReadAt, Span};

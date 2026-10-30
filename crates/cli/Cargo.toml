@@ -16,6 +16,7 @@ compio = { workspace = true }
 futures-util = { workspace = true }
 libc = { workspace = true }
 pico-args = { workspace = true }
+record-processor-domain = { workspace = true }
 service = { workspace = true }
 storage = { workspace = true }
 thiserror = { workspace = true }

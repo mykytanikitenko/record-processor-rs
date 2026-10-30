@@ -17,36 +17,3 @@ pub trait BalanceStream {
         cancel: &CancellationToken,
     ) -> Result<Option<AccountBalance>, Self::Error>;
 }
-
-/// Failure to pull from the production balance stream.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[non_exhaustive]
-pub enum RealBalancesError {
-    /// The stream was cancelled before it exhausted.
-    #[error("balance stream cancelled")]
-    Cancelled,
-    /// The balance stream has no implementation yet.
-    #[error("balance stream is not implemented")]
-    Unimplemented,
-}
-
-/// The production balance stream; yields
-/// [`RealBalancesError::Unimplemented`] until the engine is implemented.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RealBalances;
-
-impl BalanceStream for RealBalances {
-    type Error = RealBalancesError;
-
-    #[inline]
-    async fn next(
-        &mut self,
-        cancel: &CancellationToken,
-    ) -> Result<Option<AccountBalance>, Self::Error> {
-        if cancel.is_cancelled() {
-            Err(RealBalancesError::Cancelled)
-        } else {
-            Err(RealBalancesError::Unimplemented)
-        }
-    }
-}

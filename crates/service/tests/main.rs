@@ -1,4 +1,5 @@
-mod service;
+mod mocks;
+mod stages;
 
 #[rudzio::main]
 fn main() {}

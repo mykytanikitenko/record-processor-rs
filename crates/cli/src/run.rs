@@ -3,9 +3,13 @@
 
 use compio::io::AsyncRead;
 use futures_util::future::Either;
+use record_processor_domain::input::Transaction;
 use service::BalanceStream as _;
-use service::Service as _;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
+
+/// Number of transactions buffered per queue append and per queue read.
+const BATCH: usize = 256;
 
 /// Failure while running the command-line entry point.
 #[derive(Debug, thiserror::Error)]
@@ -50,12 +54,22 @@ pub enum ServeInputError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ProcessError {
-    /// The engine failed while consuming the transaction stream.
+    /// Aggregating the queue into per-client state failed.
     #[error(transparent)]
-    Serve(#[from] service::ServeError),
-    /// The balance stream failed while producing balances.
+    Aggregate(
+        #[from]
+        service::AggregateError<
+            storage::mmap_queue::ReadAtError,
+            storage::mmap_kv::LookupError,
+            storage::mmap_kv::UpdateError,
+        >,
+    ),
+    /// Pulling the next account balance failed.
     #[error(transparent)]
-    Stream(#[from] service::RealBalancesError),
+    Balance(#[from] service::NextBalanceError<storage::mmap_kv::WalkError>),
+    /// Ingesting the transaction stream into the queue failed.
+    #[error(transparent)]
+    Ingest(#[from] service::IngestError<transport::ReadError, storage::mmap_queue::AppendError>),
     /// Writing the account balances failed.
     #[error(transparent)]
     Write(#[from] transport::WriteError),
@@ -80,15 +94,20 @@ async fn process<S>(
 where
     S: AsyncRead,
 {
-    let reader = transport::Reader::from(source);
-    let mut balances = service::Engine {
-        index: storage::Storage,
-        eof: storage::Storage,
-        queue: storage::Storage,
-        state: storage::Storage,
-    }
-    .serve(reader, token)
-    .await?;
+    let queue = storage::MmapQueue;
+    let kv = storage::MmapKv;
+    let engine = service::Engine {
+        kv: &kv,
+        queue: &queue,
+    };
+    let mut reader = transport::Reader::from(source);
+    let mut batch = [Transaction::Eof; BATCH];
+    let ingested = engine.ingest(&mut reader, &mut batch, token).await?;
+    let tracker = TaskTracker::new();
+    engine
+        .aggregate(ingested.start, ingested, &mut batch, &tracker, token)
+        .await?;
+    let mut balances = engine.balances();
     let mut writer = transport::Writer::from(compio::fs::stdout());
     while let Some(balance) = balances.next(token).await? {
         writer.write_all(&[balance], token).await?;
