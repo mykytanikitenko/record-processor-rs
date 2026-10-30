@@ -4,6 +4,21 @@ use record_processor_domain::client_id::ClientId;
 use record_processor_domain::output::AccountBalance;
 use tokio_util::sync::CancellationToken;
 
+
+// Storage:
+//     Define Offset u64 type
+//     Queue: - Generic queue
+//         async append batch, returns Offset
+//         async subscribe(since: Offset) -> Lazy stream of batches
+//     implementation enum: Memory (backed by regular vector), might be real db in future
+//
+//     KV: Represents generic KV storage
+//        async get
+//        async set
+//     implementation: Memory (backed by regular hashmap), might be real db in future
+//
+//
+
 /// Failure to read one client's state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
