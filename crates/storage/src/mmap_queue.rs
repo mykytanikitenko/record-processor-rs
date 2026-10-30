@@ -1,5 +1,6 @@
 //! The memory-mapped queue backing (a contract stub until the backing lands).
 
+// TODO(lint/E0432): unresolved imports `crate::queue::Append`, `crate::queue::Position`, `crate::queue::ReadAt`, `crate::queue::Span`
 use crate::queue::{Append, Position, ReadAt, Span};
 
 /// Failure to append to the memory-mapped queue.
