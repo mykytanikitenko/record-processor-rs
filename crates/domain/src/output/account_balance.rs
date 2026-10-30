@@ -19,6 +19,43 @@ pub struct AccountBalance {
     total: Balance,
 }
 
+impl AccountBalance {
+    /// The funds available for trading or withdrawal.
+    #[must_use]
+    #[inline]
+    pub const fn available(&self) -> Balance {
+        self.available
+    }
+
+    /// The client identifier.
+    #[must_use]
+    #[inline]
+    pub const fn client(&self) -> ClientId {
+        self.client
+    }
+
+    /// The funds held under dispute.
+    #[must_use]
+    #[inline]
+    pub const fn held(&self) -> Balance {
+        self.held
+    }
+
+    /// Whether the account is frozen.
+    #[must_use]
+    #[inline]
+    pub const fn locked(&self) -> bool {
+        self.locked
+    }
+
+    /// The total of available and held funds.
+    #[must_use]
+    #[inline]
+    pub const fn total(&self) -> Balance {
+        self.total
+    }
+}
+
 /// Input fields for constructing an `AccountBalance`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 
