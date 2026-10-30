@@ -1267,7 +1267,7 @@ dependencies = [
 [[package]]
 name = "rudzio"
 version = "0.2.0"
-source = "git+https://github.com/mykytanikitenko/rudzio.git?rev=f6b0d3a35b237d02f91088f596091f5490ea8107#f6b0d3a35b237d02f91088f596091f5490ea8107"
+source = "git+https://github.com/mykytanikitenko/rudzio.git?rev=bb802e66864d39e434bfbaf015696a9c2a2a1662#bb802e66864d39e434bfbaf015696a9c2a2a1662"
 dependencies = [
  "anyhow",
  "compio-driver 0.11.4",
@@ -1288,7 +1288,7 @@ dependencies = [
 [[package]]
 name = "rudzio-macro"
 version = "0.2.0"
-source = "git+https://github.com/mykytanikitenko/rudzio.git?rev=f6b0d3a35b237d02f91088f596091f5490ea8107#f6b0d3a35b237d02f91088f596091f5490ea8107"
+source = "git+https://github.com/mykytanikitenko/rudzio.git?rev=bb802e66864d39e434bfbaf015696a9c2a2a1662#bb802e66864d39e434bfbaf015696a9c2a2a1662"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1299,7 +1299,7 @@ dependencies = [
 [[package]]
 name = "rudzio-macro-internals"
 version = "0.2.0"
-source = "git+https://github.com/mykytanikitenko/rudzio.git?rev=f6b0d3a35b237d02f91088f596091f5490ea8107#f6b0d3a35b237d02f91088f596091f5490ea8107"
+source = "git+https://github.com/mykytanikitenko/rudzio.git?rev=bb802e66864d39e434bfbaf015696a9c2a2a1662#bb802e66864d39e434bfbaf015696a9c2a2a1662"
 dependencies = [
  "proc-macro2",
  "quote",
