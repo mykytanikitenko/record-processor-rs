@@ -2,7 +2,6 @@
 //! stream and drive a [`Consumer`] toward a stdout [`Writer`].
 
 use allocator_api2::alloc::Global;
-use allocator_api2::boxed::Box;
 use allocator_api2::vec::Vec;
 use compio::io::AsyncRead;
 use service::stream::Balances;
@@ -24,7 +23,7 @@ const BATCH: usize = 1024;
 #[derive(Debug)]
 pub struct Transactions<S> {
     /// The reused batch buffer.
-    buffer: Box<[Transaction], Global>,
+    buffer: Vec<Transaction, Global>,
     /// Whether the reader has reached end-of-input.
     exhausted: bool,
     /// The underlying transaction reader.
@@ -34,10 +33,12 @@ pub struct Transactions<S> {
 impl<S> From<Input<S>> for Transactions<S> {
     #[inline]
     fn from(input: Input<S>) -> Self {
-        let mut buffer = Vec::new_in(Global);
-        buffer.resize(BATCH, Transaction::Eof);
+        let mut buffer = Vec::with_capacity_in(BATCH, Global);
+        for _ in 0..BATCH {
+            buffer.push(Transaction::Eof);
+        }
         Self {
-            buffer: buffer.into_boxed_slice(),
+            buffer,
             exhausted: false,
             reader: Reader::from(input),
         }

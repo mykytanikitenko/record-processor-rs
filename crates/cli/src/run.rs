@@ -2,6 +2,7 @@
 //! payments engine to stdout with cooperative cancellation.
 
 use allocator_api2::alloc::Global;
+use allocator_api2::boxed::Box;
 use futures_util::future::Either;
 use service::engine_state::KvState;
 use service::{ClientId, DepositState, EngineParts, ServiceState, State, Transaction, TxId};
@@ -191,7 +192,7 @@ async fn process(
     let engine = Engine::from(EngineParts { queue, state });
     transport::serve(engine, source, token)
         .await
-        .map_err(|error| ProcessError::Serve(Box::new(error)))?;
+        .map_err(|error| ProcessError::Serve(Box::from(error)))?;
     Ok(())
 }
 
