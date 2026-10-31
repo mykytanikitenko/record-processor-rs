@@ -7,10 +7,12 @@ pub mod engine_state;
 pub mod mocks;
 pub mod stream;
 
-pub use consumer::{ApplyError, ConsumeError, Consumer, DispatchError, Engine, EngineParts, Type};
+pub use consumer::{
+    ApplyError, BalanceStream, ConsumeError, Consumer, DispatchError, Engine, EngineParts, Type,
+};
 pub use engine_state::{
-    DepositState, DepositStateParts, DepositStatus, KvState, LoadClientError, LoadDepositError,
-    ServiceState, ServiceStateParts, State, StoreClientError, StoreDepositError,
+    ClientsError, DepositState, DepositStateParts, DepositStatus, KvState, LoadClientError,
+    LoadDepositError, ServiceState, ServiceStateParts, State, StoreClientError, StoreDepositError,
 };
 pub use stream::{Balances, Transactions};
 
