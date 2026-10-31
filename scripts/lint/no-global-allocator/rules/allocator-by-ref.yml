@@ -1,0 +1,7 @@
+id: allocator-by-ref
+language: Rust
+severity: info
+message: "allocator passed by reference; require pass-by-value `A: Allocator` so the caller owns the allocator"
+rule:
+  kind: reference_type
+  regex: '^&(mut )?impl Allocator$'

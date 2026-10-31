@@ -1,0 +1,8 @@
+id: allocator-by-ref
+valid:
+  - 'fn f<A: Allocator>(alloc: A) {}'
+  - 'let y: &str = &x;'
+  - 'fn g<T>(t: &mut T) {}'
+invalid:
+  - 'fn f(alloc: &impl Allocator) {}'
+  - 'fn f(alloc: &mut impl Allocator) {}'
