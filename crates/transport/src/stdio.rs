@@ -141,13 +141,21 @@ where
         .await
         .map_err(ServeError::Consume)?;
     let mut writer = Writer::from(compio::fs::stdout());
-    writer
-        .write_header(cancel)
+    let mut wrote_any = false;
+    while let Some(batch) = balances
+        .next_batch(cancel)
         .await
-        .map_err(ServeError::Write)?;
-    while let Some(batch) = balances.next_batch(cancel).await.map_err(ServeError::Balance)? {
+        .map_err(ServeError::Balance)?
+    {
         writer
             .write_all(batch, cancel)
+            .await
+            .map_err(ServeError::Write)?;
+        wrote_any = true;
+    }
+    if !wrote_any {
+        writer
+            .write_all(&[], cancel)
             .await
             .map_err(ServeError::Write)?;
     }

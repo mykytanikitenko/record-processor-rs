@@ -1,5 +1,5 @@
 description = "A dispute references a withdrawal that failed for insufficient funds."
 derivation = "deposit 10.0, withdrawal 20.0 fails (available stays 10.0). The dispute of tx 2 (the failed withdrawal) has no spec-defined effect."
-outcome = "pending-decision"
+outcome = "success"
 decision = "dispute-failed-withdrawal"
 question = "Can a dispute reference a withdrawal that failed for insufficient funds? If so, what is disputed — nothing (the withdrawal never changed balances) or the attempted amount?"

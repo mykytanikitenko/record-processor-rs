@@ -256,74 +256,56 @@ case the spec leaves open.
 
 ### Open decisions
 
-Cases the spec does not decide are recorded as pending decisions rather than
-guessed at. See each `case.toml` for the precise question; the ids are
-`failed-withdrawal-new-client`, `dispute-withdrawal`,
-`dispute-insufficient-available`, `locked-account-operations`,
-`mismatched-client-reference`, `duplicate-tx-id`, `redispute-after-resolve`,
-`dispute-after-chargeback`, `double-dispute`, `dispute-failed-withdrawal`,
-and `ignored-row-client-output`.
+The eleven cases the spec left open are now resolved using the provisional
+engine behaviour as the decision. Each is recorded with its decided behaviour
+and the `file:line` of the decision under
+[Open decisions for review](#open-decisions-for-review); the fixtures carry
+`outcome = "success"` with a checked-in `expected.csv`.
 
 ## Open decisions for review
 
-Collected here for operator review: each entry records the id, the open
-question, the current behaviour, and where the decision lives. The eleven
-fixture cases are `pending-decision` in the e2e corpus — the harness fails
-loudly with `pending decision <id>: <question>` (`tests/e2e/cases.rs:76`)
-without running the binary, so their current behaviour is "not decided"; no
-engine code implements them yet.
+Resolved decisions, one per previously-open case: each records the decided
+behaviour and the `file:line` of the engine logic that implements it. All
+eleven fixtures now run to completion (`outcome = "success"`) against a
+checked-in `expected.csv`.
 
-- **`failed-withdrawal-new-client`** — When a withdrawal targets a client with
-  no prior record (and so has zero available funds), should that client appear
-  in the output as a zero-balance row, or be omitted entirely?
-  - Current behaviour: not decided; e2e case `033` fails loudly.
-  - Decided in: not implemented yet.
-- **`dispute-withdrawal`** — Can a dispute reference a withdrawal transaction?
-  If so, does disputing a withdrawal reverse the debit (returning funds to
-  available), or is dispute only meaningful for deposits?
-  - Current behaviour: not decided; e2e case `080` fails loudly.
-  - Decided in: not implemented yet.
-- **`dispute-insufficient-available`** — When a dispute references a deposit
-  whose amount exceeds the client's current available funds (part already
-  withdrawn), should the dispute fail, drive available negative, or be clamped?
-  - Current behaviour: not decided; e2e case `081` fails loudly.
-  - Decided in: not implemented yet.
-- **`locked-account-operations`** — After a chargeback locks an account, should
-  subsequent deposits, withdrawals, disputes, and resolves on that account be
-  rejected, or still applied?
-  - Current behaviour: not decided; e2e case `082` fails loudly.
-  - Decided in: not implemented yet.
-- **`mismatched-client-reference`** — When a dispute/resolve/chargeback row
-  names a client that differs from the client of the referenced transaction,
-  which is authoritative — the row's client or the transaction's client?
-  - Current behaviour: not decided; e2e case `083` fails loudly.
-  - Decided in: not implemented yet.
-- **`duplicate-tx-id`** — When a transaction id is reused by a later row, should
-  the later row be ignored, treated as an error, or applied?
-  - Current behaviour: not decided; e2e case `084` fails loudly.
-  - Decided in: not implemented yet (see the dedup-index note below).
-- **`redispute-after-resolve`** — After a dispute has been resolved, can the
-  same transaction be disputed again?
-  - Current behaviour: not decided; e2e case `085` fails loudly.
-  - Decided in: not implemented yet.
-- **`dispute-after-chargeback`** — After a chargeback finalizes a dispute and
-  locks the account, can the same transaction be disputed again?
-  - Current behaviour: not decided; e2e case `086` fails loudly.
-  - Decided in: not implemented yet.
-- **`double-dispute`** — Should disputing the same transaction twice hold the
-  funds twice, ignore the second dispute, or be treated as an error?
-  - Current behaviour: not decided; e2e case `087` fails loudly.
-  - Decided in: not implemented yet.
-- **`dispute-failed-withdrawal`** — Can a dispute reference a withdrawal that
-  failed for insufficient funds? If so, what is disputed — nothing (the
-  withdrawal never changed balances) or the attempted amount?
-  - Current behaviour: not decided; e2e case `088` fails loudly.
-  - Decided in: not implemented yet.
-- **`ignored-row-client-output`** — When a client appears only in rows that are
-  ignored (a dispute/resolve/chargeback of an unknown transaction), should that
-  client appear as a zero-balance row in the output, or be omitted?
-  - Current behaviour: not decided; e2e case `089` fails loudly.
-  - Decided in: not implemented yet.
+- **`failed-withdrawal-new-client`** — A withdrawal against a client with no
+  record is ignored: no account is created, so the client is omitted from the
+  output.
+  - Decided in: `crates/service/src/consumer.rs:272`.
+- **`dispute-withdrawal`** — Dispute references only recorded deposits;
+  disputing a withdrawal (never stored as a deposit) is ignored.
+  - Decided in: `crates/service/src/consumer.rs:302`.
+- **`dispute-insufficient-available`** — A dispute proceeds unclamped: the
+  `checked_sub` drives `available` negative when the disputed amount exceeds it.
+  - Decided in: `crates/service/src/consumer.rs:330`.
+- **`locked-account-operations`** — Locking does not gate later operations;
+  deposits and withdrawals on a locked account still apply (no `locked()` check).
+  - Decided in: `crates/service/src/consumer.rs:205-294`.
+- **`mismatched-client-reference`** — The referenced transaction's client is
+  authoritative; a dispute/resolve/chargeback naming a different client is
+  ignored.
+  - Decided in: `crates/service/src/consumer.rs:304`.
+- **`duplicate-tx-id`** — A reused transaction id is applied to the new client
+  (amount credited) while the first deposit record is kept (a later
+  `store_deposit` is skipped).
+  - Decided in: `crates/service/src/consumer.rs:207-213`.
+- **`redispute-after-resolve`** — Resolve restores the deposit to `Available`,
+  so a later dispute re-holds the funds.
+  - Decided in: `crates/service/src/consumer.rs:350-404`.
+- **`dispute-after-chargeback`** — Chargeback leaves the deposit `ChargedBack`;
+  a later dispute is ignored.
+  - Decided in: `crates/service/src/consumer.rs:304`.
+- **`double-dispute`** — A second dispute of an already-`Disputed` deposit is
+  ignored (funds are not held twice).
+  - Decided in: `crates/service/src/consumer.rs:304`.
+- **`dispute-failed-withdrawal`** — Disputing a withdrawal is ignored whether it
+  succeeded or failed: withdrawals are never recorded as deposits.
+  - Decided in: `crates/service/src/consumer.rs:302`.
+- **`ignored-row-client-output`** — A client appearing only in ignored
+  dispute/resolve/chargeback rows is omitted (those arms return early without
+  creating account state).
+  - Decided in: `crates/service/src/consumer.rs:302,357,412`.
 
 ### Implementation questions
 

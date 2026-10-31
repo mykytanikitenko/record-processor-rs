@@ -1,5 +1,5 @@
 description = "A dispute references a deposit whose amount exceeds the remaining available funds."
 derivation = "deposit 10.0, withdrawal 8.0 -> available 2.0. Disputing tx 1 (amount 10.0) would move 10.0 from available (2.0) to held."
-outcome = "pending-decision"
+outcome = "success"
 decision = "dispute-insufficient-available"
 question = "When a dispute references a deposit whose amount exceeds the client's current available funds (part already withdrawn), should the dispute fail, drive available negative, or be clamped?"
