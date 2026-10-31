@@ -7,17 +7,26 @@ use futures_util::future::Either;
 use service::engine_state::KvState;
 use service::{ClientId, EngineParts, ServiceState, State, Transaction, TxId, TxRecord};
 use std::hash::RandomState;
+use storage::file_queue::{FileQueue, OpenError, Parts as FileQueueParts};
 use storage::memory_kv::{KeysError, LoadError, MemoryKv, Parts as KvParts, StoreError};
-use storage::memory_queue::{MemoryQueue, Parts as QueueParts};
 use tokio_util::sync::CancellationToken;
+
+/// Byte length of the transaction queue's fixed backing reservation.
+///
+/// The queue maps this many bytes exactly once and never grows, so every
+/// appended `Transaction` must fit within it; an append that would overflow it
+/// fails with `AppendError::Capacity`. Two gibibytes accommodates
+/// gigabyte-scale CSV input while keeping the virtual mapping cheap on 64-bit
+/// targets.
+const QUEUE_CAPACITY: usize = 1 << 31;
 
 /// The in-memory store of each client's account state.
 type Clients = MemoryKv<ClientId, ServiceState, RandomState, Global>;
 /// The in-memory store of each transaction's lifecycle.
 type Records = MemoryKv<TxId, TxRecord, RandomState, Global>;
-/// The in-memory transaction queue.
-type Queue = MemoryQueue<Transaction, Global>;
-/// The payments engine over the in-memory storage.
+/// The memory-mapped, file-backed transaction queue.
+type Queue = FileQueue<Transaction, Global>;
+/// The payments engine over the memory-mapped queue and in-memory state.
 type Engine = service::Engine<Queue, MemoryState>;
 
 /// The engine state: per-client account state and the transaction lifecycle,
@@ -157,9 +166,27 @@ pub enum ServeInputError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ProcessError {
+    /// Opening the memory-mapped transaction queue failed.
+    #[error("opening the transaction queue failed: {0}")]
+    Queue(#[from] QueueOpenError),
     /// Serving the transaction stream through the engine failed.
     #[error("serving the transaction stream failed: {0}")]
     Serve(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
+
+/// Failure while opening the memory-mapped transaction queue.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum QueueOpenError {
+    /// The backing file could not be opened or sized.
+    #[error("opening or sizing the backing file failed: {0}")]
+    Io(#[from] std::io::Error),
+    /// The reservation does not fit the backing-file length type.
+    #[error("the reservation does not fit the backing-file length: {0}")]
+    Length(#[from] core::num::TryFromIntError),
+    /// The backing file could not be turned into a queue.
+    #[error("constructing the file-backed queue failed: {0}")]
+    Map(#[source] OpenError),
 }
 
 /// Wait for either SIGINT or SIGTERM, then cancel the token.
@@ -171,6 +198,26 @@ async fn cancel_on_signal(token: CancellationToken) -> Result<(), CancelError> {
     }
     token.cancel();
     Ok(())
+}
+
+/// Open and size the transaction queue's backing file.
+///
+/// The queue maps a fixed reservation, so the backing file is created (or
+/// truncated) and extended to [`QUEUE_CAPACITY`] bytes before it is mapped; the
+/// queue itself never resizes it.
+async fn open_queue_file() -> Result<compio::fs::File, QueueOpenError> {
+    // Backing file is unique per process so concurrent runs never share a
+    // mapping; the queue truncates and re-sizes it on every open.
+    let path = std::env::temp_dir().join(std::process::id().to_string());
+    let file = compio::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(path)
+        .await?;
+    file.set_len(u64::try_from(QUEUE_CAPACITY)?).await?;
+    Ok(file)
 }
 
 /// Drive the engine over `source`, projecting the resulting balances to
@@ -187,7 +234,12 @@ async fn process(
         alloc: Global,
         hasher: RandomState::new(),
     });
-    let queue: Queue = MemoryQueue::from(QueueParts { alloc: Global });
+    let queue: Queue = FileQueue::try_from(FileQueueParts {
+        alloc: Global,
+        file: open_queue_file().await?,
+        capacity: QUEUE_CAPACITY,
+    })
+    .map_err(QueueOpenError::Map)?;
     let state = MemoryState { clients, records };
     let engine = Engine::from(EngineParts { queue, state });
     transport::serve(engine, source, token)
