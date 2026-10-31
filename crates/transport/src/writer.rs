@@ -145,6 +145,9 @@ where
         balances: &[AccountBalance],
         cancel: &CancellationToken,
     ) -> Result<(), WriteError> {
+        if cancel.is_cancelled() {
+            return Err(WriteError::Cancelled);
+        }
         self.write_header(cancel).await?;
         for balance in balances {
             if cancel.is_cancelled() {
