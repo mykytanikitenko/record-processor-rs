@@ -1,7 +1,6 @@
 //! The memory-mapped key-value backing (a contract stub until the backing
 //! lands).
 
-// TODO(lint/E0432): unresolved imports `crate::kv::Entry`, `crate::kv::Lookup`, `crate::kv::Slot`, `crate::kv::Update`, `crate::kv::Walk`
 use crate::kv::{Entry, Lookup, Slot, Update, Walk};
 
 /// Failure to look up a value in the memory-mapped key-value store.
