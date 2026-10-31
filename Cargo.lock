@@ -142,10 +142,7 @@ dependencies = [
  "futures-util",
  "libc",
  "pico-args",
- "record-processor-domain",
  "rudzio",
- "service",
- "storage",
  "thiserror",
  "tokio-util",
  "transport",
@@ -1418,13 +1415,7 @@ dependencies = [
 name = "service"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "mockall",
  "record-processor-domain",
- "rudzio",
- "rust_decimal",
- "storage",
- "thiserror",
  "tokio-util",
 ]
 

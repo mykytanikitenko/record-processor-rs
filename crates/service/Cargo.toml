@@ -13,21 +13,7 @@ autotests = false
 
 [dependencies]
 record-processor-domain = { workspace = true }
-storage = { workspace = true }
-thiserror = { workspace = true }
 tokio-util = { workspace = true }
-
-[dev-dependencies]
-anyhow.workspace = true
-mockall.workspace = true
-rudzio.workspace = true
-rust_decimal.workspace = true
-thiserror.workspace = true
-
-[[test]]
-name = "main"
-path = "tests/main.rs"
-harness = false
 
 [lints]
 workspace = true

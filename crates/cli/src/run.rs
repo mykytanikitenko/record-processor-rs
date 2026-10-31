@@ -3,13 +3,7 @@
 
 use compio::io::AsyncRead;
 use futures_util::future::Either;
-use record_processor_domain::input::Transaction;
-use service::BalanceStream as _;
 use tokio_util::sync::CancellationToken;
-use tokio_util::task::TaskTracker;
-
-/// Number of transactions buffered per queue append and per queue read.
-const BATCH: usize = 256;
 
 /// Failure while running the command-line entry point.
 #[derive(Debug, thiserror::Error)]
@@ -54,25 +48,9 @@ pub enum ServeInputError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ProcessError {
-    /// Aggregating the queue into per-client state failed.
-    #[error(transparent)]
-    Aggregate(
-        #[from]
-        service::AggregateError<
-            storage::mmap_queue::ReadAtError,
-            storage::mmap_kv::LookupError,
-            storage::mmap_kv::UpdateError,
-        >,
-    ),
-    /// Pulling the next account balance failed.
-    #[error(transparent)]
-    Balance(#[from] service::NextBalanceError<storage::mmap_kv::WalkError>),
-    /// Ingesting the transaction stream into the queue failed.
-    #[error(transparent)]
-    Ingest(#[from] service::IngestError<transport::ReadError, storage::mmap_queue::AppendError>),
-    /// Writing the account balances failed.
-    #[error(transparent)]
-    Write(#[from] transport::WriteError),
+    /// The payments engine has no implementation over the storage contracts.
+    #[error("the payments engine is not implemented")]
+    Unimplemented,
 }
 
 /// Wait for either SIGINT or SIGTERM, then cancel the token.
@@ -86,33 +64,16 @@ async fn cancel_on_signal(token: CancellationToken) -> Result<(), CancelError> {
     Ok(())
 }
 
-/// Drive the engine over `source`, writing balances to stdout.
+/// Drive the engine over `source`; the engine awaits its storage-backed
+/// implementation, so every source reports [`ProcessError::Unimplemented`].
 async fn process<S>(
-    source: transport::Input<S>,
-    token: &CancellationToken,
+    _source: transport::Input<S>,
+    _token: &CancellationToken,
 ) -> Result<(), ProcessError>
 where
     S: AsyncRead,
 {
-    let queue = storage::MmapQueue;
-    let kv = storage::MmapKv;
-    let engine = service::Engine {
-        kv: &kv,
-        queue: &queue,
-    };
-    let mut reader = transport::Reader::from(source);
-    let mut batch = [Transaction::Eof; BATCH];
-    let ingested = engine.ingest(&mut reader, &mut batch, token).await?;
-    let tracker = TaskTracker::new();
-    engine
-        .aggregate(ingested.start, ingested, &mut batch, &tracker, token)
-        .await?;
-    let mut balances = engine.balances();
-    let mut writer = transport::Writer::from(compio::fs::stdout());
-    while let Some(balance) = balances.next(token).await? {
-        writer.write_all(&[balance], token).await?;
-    }
-    Ok(())
+    Err(ProcessError::Unimplemented)
 }
 
 /// Open the input source and drive the engine.
