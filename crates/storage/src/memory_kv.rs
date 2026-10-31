@@ -67,17 +67,13 @@ where
 {
     /// Return the smallest stored key strictly greater than `after`, if any.
     async fn next_key_inner(&self, after: Option<K>) -> Option<K> {
-        let table = self.table.lock().await;
-        let mut next: Option<K> = None;
-        for key in table.keys() {
-            let greater = after.as_ref().is_none_or(|after_key| key > after_key);
-            let smaller = next.as_ref().is_none_or(|candidate| key < candidate);
-            if greater && smaller {
-                next = Some(key.clone());
-            }
-        }
-        drop(table);
-        next
+        self.table
+            .lock()
+            .await
+            .keys()
+            .filter(|key| after.as_ref().is_none_or(|after_key| *key > after_key))
+            .min()
+            .cloned()
     }
 }
 

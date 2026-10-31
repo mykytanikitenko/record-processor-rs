@@ -161,7 +161,7 @@ mod tests {
         expected: &[AccountBalance],
     ) -> anyhow::Result<()>
     where
-        S: service::State,
+        S: service::State + core::fmt::Debug,
     {
         let mut got: Vec<AccountBalance> = Vec::new();
         loop {
@@ -217,7 +217,9 @@ mod tests {
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
         let _next_client = state.expect_next_client().times(2).returning(
-            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
                 if after.is_none() {
                     Ok(Some((ClientId::from(1), stored_client)))
                 } else {
@@ -259,7 +261,9 @@ mod tests {
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
         let _next_client = state.expect_next_client().times(2).returning(
-            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
                 if after.is_none() {
                     Ok(Some((ClientId::from(1), stored)))
                 } else {
@@ -295,7 +299,9 @@ mod tests {
                 },
             );
         let _next_client = state.expect_next_client().times(2).returning(
-            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
                 if after.is_none() {
                     Ok(Some((ClientId::from(1), loaded)))
                 } else {
@@ -330,7 +336,9 @@ mod tests {
                 },
             );
         let _next_client = state.expect_next_client().times(1).returning(
-            |_after: Option<ClientId>, _cancel: &CancellationToken| Ok::<_, MockClientsError>(None),
+            |_after: Option<ClientId>,
+             _cancel: &CancellationToken|
+             -> Result<Option<(ClientId, ServiceState)>, MockClientsError> { Ok(None) },
         );
         let engine = Engine::from(EngineParts { queue, state });
         let balances = engine
@@ -382,7 +390,9 @@ mod tests {
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
         let _next_client = state.expect_next_client().times(2).returning(
-            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
                 if after.is_none() {
                     Ok(Some((ClientId::from(1), stored)))
                 } else {
@@ -440,7 +450,9 @@ mod tests {
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
         let _next_client = state.expect_next_client().times(2).returning(
-            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
                 if after.is_none() {
                     Ok(Some((ClientId::from(1), stored)))
                 } else {
@@ -498,7 +510,9 @@ mod tests {
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
         let _next_client = state.expect_next_client().times(2).returning(
-            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
                 if after.is_none() {
                     Ok(Some((ClientId::from(1), stored)))
                 } else {
@@ -531,7 +545,9 @@ mod tests {
                 |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> { Ok(None) },
             );
         let _next_client = state.expect_next_client().times(1).returning(
-            |_after: Option<ClientId>, _cancel: &CancellationToken| Ok::<_, MockClientsError>(None),
+            |_after: Option<ClientId>,
+             _cancel: &CancellationToken|
+             -> Result<Option<(ClientId, ServiceState)>, MockClientsError> { Ok(None) },
         );
         let engine = Engine::from(EngineParts { queue, state });
         let balances = engine

@@ -52,7 +52,7 @@ pub struct BalanceStream<S> {
 }
 
 /// Failure to project a balance row from the engine state.
-#[derive(thiserror::Error)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum BalanceError<S>
 where
@@ -66,22 +66,9 @@ where
     Overflow(#[from] OverflowError),
 }
 
-impl<S> core::fmt::Debug for BalanceError<S>
-where
-    S: State,
-{
-    #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Clients(error) => f.debug_tuple("Clients").field(error).finish(),
-            Self::Overflow(error) => f.debug_tuple("Overflow").field(error).finish(),
-        }
-    }
-}
-
 impl<S> Balances for BalanceStream<S>
 where
-    S: State,
+    S: State + core::fmt::Debug,
 {
     type Error = BalanceError<S>;
 

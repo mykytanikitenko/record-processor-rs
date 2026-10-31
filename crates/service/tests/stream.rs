@@ -97,7 +97,10 @@ mod tests {
             balance(2, "0.0", "2.0", true)?,
         ];
         let mut source = BalanceSource {
-            rows: expected.clone(),
+            rows: vec![
+                balance(1, "1.5", "0.0", false)?,
+                balance(2, "0.0", "2.0", true)?,
+            ],
         };
         let batch = source.next_batch(&CancellationToken::new()).await;
         anyhow::ensure!(
