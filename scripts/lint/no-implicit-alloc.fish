@@ -115,6 +115,12 @@ function _self_test
         '}' >"$dir/pass/tests/it.rs"
     printf '%s\n' \
         'fn clean(x: usize) -> usize { x }' >"$dir/pass/clean.rs"
+    printf '%s\n' \
+        'fn explicit<A>(alloc: A, hasher: S) {' \
+        '    let a = Vec::new_in(alloc);' \
+        '    let b = Vec::with_capacity_in(4, alloc);' \
+        '    let c = HashMap::with_hasher_in(hasher, alloc);' \
+        '}' >"$dir/pass/explicit.rs"
 
     set -l pass_out (mktemp)
     _run_pipeline "$dir/pass" "$pass_out"

@@ -90,7 +90,7 @@ def is_real_mod:
 def normalize: sub(".*::(?=[A-Z])"; "");
 
 def is_fmt_err: . == "fmt::Error" or . == "std::fmt::Error" or . == "core::fmt::Error";
-def is_self_err: . == "Self::Error";
+def is_self_err: test("^Self::");
 def is_generic_param: test("^[A-Z]$");
 def is_generic_assoc: test("^[A-Z]::Error$");
 def is_boxed: test("^[Bb]ox<");

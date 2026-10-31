@@ -27,7 +27,8 @@ def type_arg:
     sub("^Box\\s*<\\s*\\["; "") | sub("\\]\\s*>\\s*$"; "")
   else
     sub("^(?:Vec|VecDeque)\\s*<"; "") | sub(">\\s*$"; "")
-  end;
+  end
+  | sub("\\s*,[^<>]*$"; "");
 
 . as $all
 | ($domains // []) as $domains

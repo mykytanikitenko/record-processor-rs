@@ -5,6 +5,10 @@ valid:
   - "let y = &x;"
   - "fn f(a: u8) -> u8 { a }"
   - "let it = (0..10).into_iter();"
+  - "Vec::new_in(alloc)"
+  - "Vec::with_capacity_in(4, alloc)"
+  - "HashMap::with_hasher_in(hasher, alloc)"
+  - "Box::new_in(x, alloc)"
 invalid:
   - "Vec::new()"
   - "Vec::with_capacity(4)"

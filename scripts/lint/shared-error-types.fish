@@ -147,6 +147,20 @@ function _self_test
         '#[derive(Debug)] enum ParentErr { Child(ChildErr) }' \
         'fn parent() -> Result<(), ParentErr> { Ok(()) }' \
         'fn child() -> Result<(), ChildErr> { Ok(()) }' >"$dir/pass/wrapped.rs"
+    # A self-referential associated error (Self::AppendError) used by the trait
+    # declaration and its impl is not a shared type: it names the trait's own
+    # associated type, exactly like Self::Error.
+    printf '%s\n' \
+        'trait Append {' \
+        '    type AppendError: core::error::Error;' \
+        '    async fn append(&self) -> Result<(), Self::AppendError>;' \
+        '}' \
+        'struct Impl;' \
+        'impl Append for Impl {' \
+        '    type AppendError = Concrete;' \
+        '    async fn append(&self) -> Result<(), Self::AppendError> { Ok(()) }' \
+        '}' \
+        '#[derive(Debug)] enum Concrete {}' >"$dir/pass/self_ref.rs"
     # fmt::Error in a Display impl (forced by the trait).
     printf '%s\n' \
         'use std::fmt;' \
