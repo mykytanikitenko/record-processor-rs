@@ -16,7 +16,7 @@ use storage::queue::Queue;
 use tokio_util::sync::CancellationToken;
 
 use crate::engine_state::{
-    DepositState, DepositStateParts, DepositStatus, ServiceState, ServiceStateParts, State,
+    ServiceState, ServiceStateParts, State, TxKind, TxRecord, TxRecordParts, TxStatus,
 };
 use crate::stream::{Balances, Transactions};
 
@@ -135,11 +135,11 @@ where
     /// Loading a client's account state failed.
     #[error("loading the client state failed: {0}")]
     LoadClient(S::LoadClientError),
-    /// Loading a deposit's lifecycle failed.
-    #[error("loading the deposit state failed: {0}")]
-    LoadDeposit(S::LoadDepositError),
-    /// A referenced deposit's client had no account state.
-    #[error("client {client:?} has a deposit but no account state")]
+    /// Loading a transaction's lifecycle failed.
+    #[error("loading the transaction state failed: {0}")]
+    LoadTx(S::LoadTxError),
+    /// A referenced transaction's client had no account state.
+    #[error("client {client:?} has a transaction but no account state")]
     MissingAccount {
         /// The client whose account state is absent.
         client: ClientId,
@@ -153,9 +153,9 @@ where
     /// Storing a client's account state failed.
     #[error("storing the client state failed: {0}")]
     StoreClient(S::StoreClientError),
-    /// Storing a deposit's lifecycle failed.
-    #[error("storing the deposit state failed: {0}")]
-    StoreDeposit(S::StoreDepositError),
+    /// Storing a transaction's lifecycle failed.
+    #[error("storing the transaction state failed: {0}")]
+    StoreTx(S::StoreTxError),
     /// The transaction kind is not recognised by this engine version.
     #[error("unsupported transaction kind")]
     Unsupported,
@@ -204,25 +204,28 @@ where
         match transaction {
             Transaction::Deposit { client, tx, amount } => {
                 let value = *amount;
+                // A reused transaction id keeps the first record; the later
+                // row is still credited.
                 if self
                     .state
-                    .load_deposit(tx, cancel)
+                    .load_tx(tx, cancel)
                     .await
-                    .map_err(ApplyError::LoadDeposit)?
+                    .map_err(ApplyError::LoadTx)?
                     .is_none()
                 {
                     self.state
-                        .store_deposit(
+                        .store_tx(
                             tx,
-                            DepositState::from(DepositStateParts {
+                            TxRecord::from(TxRecordParts {
+                                kind: TxKind::Deposit,
                                 amount: value,
                                 client,
-                                status: DepositStatus::Available,
+                                status: TxStatus::Available,
                             }),
                             cancel,
                         )
                         .await
-                        .map_err(ApplyError::StoreDeposit)?;
+                        .map_err(ApplyError::StoreTx)?;
                 }
                 let Some(state) = self
                     .state
@@ -262,7 +265,31 @@ where
                     .map_err(ApplyError::StoreClient)?;
                 Ok(())
             }
-            Transaction::Withdrawal { client, amount, .. } => {
+            Transaction::Withdrawal { client, tx, amount } => {
+                // Record the withdrawal (even one that later fails for
+                // insufficient funds) so later events can reference it; a
+                // reused transaction id keeps the first record.
+                if self
+                    .state
+                    .load_tx(tx, cancel)
+                    .await
+                    .map_err(ApplyError::LoadTx)?
+                    .is_none()
+                {
+                    self.state
+                        .store_tx(
+                            tx,
+                            TxRecord::from(TxRecordParts {
+                                kind: TxKind::Withdrawal,
+                                amount: *amount,
+                                client,
+                                status: TxStatus::Available,
+                            }),
+                            cancel,
+                        )
+                        .await
+                        .map_err(ApplyError::StoreTx)?;
+                }
                 let state = if let Some(state) = self
                     .state
                     .load_client(client, cancel)
@@ -304,30 +331,34 @@ where
                 Ok(())
             }
             Transaction::Dispute { client, tx } => {
-                let Some(deposit) = self
+                let Some(record) = self
                     .state
-                    .load_deposit(tx, cancel)
+                    .load_tx(tx, cancel)
                     .await
-                    .map_err(ApplyError::LoadDeposit)?
+                    .map_err(ApplyError::LoadTx)?
                 else {
                     return Ok(());
                 };
-                if deposit.client() != client || deposit.status() != DepositStatus::Available {
+                if record.kind() != TxKind::Deposit
+                    || record.client() != client
+                    || record.status() != TxStatus::Available
+                {
                     return Ok(());
                 }
-                let amount = deposit.amount();
+                let amount = record.amount();
                 self.state
-                    .store_deposit(
+                    .store_tx(
                         tx,
-                        DepositState::from(DepositStateParts {
+                        TxRecord::from(TxRecordParts {
+                            kind: record.kind(),
                             amount,
-                            client: deposit.client(),
-                            status: DepositStatus::Disputed,
+                            client: record.client(),
+                            status: TxStatus::Disputed,
                         }),
                         cancel,
                     )
                     .await
-                    .map_err(ApplyError::StoreDeposit)?;
+                    .map_err(ApplyError::StoreTx)?;
                 let Some(state) = self
                     .state
                     .load_client(client, cancel)
@@ -359,30 +390,34 @@ where
                 Ok(())
             }
             Transaction::Resolve { client, tx } => {
-                let Some(deposit) = self
+                let Some(record) = self
                     .state
-                    .load_deposit(tx, cancel)
+                    .load_tx(tx, cancel)
                     .await
-                    .map_err(ApplyError::LoadDeposit)?
+                    .map_err(ApplyError::LoadTx)?
                 else {
                     return Ok(());
                 };
-                if deposit.client() != client || deposit.status() != DepositStatus::Disputed {
+                if record.kind() != TxKind::Deposit
+                    || record.client() != client
+                    || record.status() != TxStatus::Disputed
+                {
                     return Ok(());
                 }
-                let amount = deposit.amount();
+                let amount = record.amount();
                 self.state
-                    .store_deposit(
+                    .store_tx(
                         tx,
-                        DepositState::from(DepositStateParts {
+                        TxRecord::from(TxRecordParts {
+                            kind: record.kind(),
                             amount,
-                            client: deposit.client(),
-                            status: DepositStatus::Available,
+                            client: record.client(),
+                            status: TxStatus::Available,
                         }),
                         cancel,
                     )
                     .await
-                    .map_err(ApplyError::StoreDeposit)?;
+                    .map_err(ApplyError::StoreTx)?;
                 let Some(state) = self
                     .state
                     .load_client(client, cancel)
@@ -414,30 +449,34 @@ where
                 Ok(())
             }
             Transaction::Chargeback { client, tx } => {
-                let Some(deposit) = self
+                let Some(record) = self
                     .state
-                    .load_deposit(tx, cancel)
+                    .load_tx(tx, cancel)
                     .await
-                    .map_err(ApplyError::LoadDeposit)?
+                    .map_err(ApplyError::LoadTx)?
                 else {
                     return Ok(());
                 };
-                if deposit.client() != client || deposit.status() != DepositStatus::Disputed {
+                if record.kind() != TxKind::Deposit
+                    || record.client() != client
+                    || record.status() != TxStatus::Disputed
+                {
                     return Ok(());
                 }
-                let amount = deposit.amount();
+                let amount = record.amount();
                 self.state
-                    .store_deposit(
+                    .store_tx(
                         tx,
-                        DepositState::from(DepositStateParts {
+                        TxRecord::from(TxRecordParts {
+                            kind: record.kind(),
                             amount,
-                            client: deposit.client(),
-                            status: DepositStatus::ChargedBack,
+                            client: record.client(),
+                            status: TxStatus::ChargedBack,
                         }),
                         cancel,
                     )
                     .await
-                    .map_err(ApplyError::StoreDeposit)?;
+                    .map_err(ApplyError::StoreTx)?;
                 let Some(state) = self
                     .state
                     .load_client(client, cancel)

@@ -274,9 +274,11 @@ checked-in `expected.csv`.
   record"), then fails for insufficient funds, leaving the record at zero; the
   client is emitted with zero balances.
   - Decided in: `crates/service/src/consumer.rs:273`.
-- **`dispute-withdrawal`** — Dispute references only recorded deposits;
-  disputing a withdrawal (never stored as a deposit) is ignored.
-  - Decided in: `crates/service/src/consumer.rs:302`.
+- **`dispute-withdrawal`** — A withdrawal is now retained in the transaction
+  store (info kept), but disputing it is still ignored: dispute is only
+  meaningful for deposits, and the referenced withdrawal is detected by its
+  `kind`.
+  - Decided in: `crates/service/src/consumer.rs:342`.
 - **`dispute-insufficient-available`** — A dispute proceeds unclamped: the
   `checked_sub` drives `available` negative when the disputed amount exceeds it.
   - Decided in: `crates/service/src/consumer.rs:330`.
@@ -288,9 +290,9 @@ checked-in `expected.csv`.
   ignored.
   - Decided in: `crates/service/src/consumer.rs:304`.
 - **`duplicate-tx-id`** — A reused transaction id is applied to the new client
-  (amount credited) while the first deposit record is kept (a later
-  `store_deposit` is skipped).
-  - Decided in: `crates/service/src/consumer.rs:207-213`.
+  (amount credited) while the first record is kept: the later `store_tx` is
+  skipped, but the later row is still applied.
+  - Decided in: `crates/service/src/consumer.rs:207-227`.
 - **`redispute-after-resolve`** — Resolve restores the deposit to `Available`,
   so a later dispute re-holds the funds.
   - Decided in: `crates/service/src/consumer.rs:350-404`.
@@ -301,8 +303,10 @@ checked-in `expected.csv`.
   ignored (funds are not held twice).
   - Decided in: `crates/service/src/consumer.rs:304`.
 - **`dispute-failed-withdrawal`** — Disputing a withdrawal is ignored whether it
-  succeeded or failed: withdrawals are never recorded as deposits.
-  - Decided in: `crates/service/src/consumer.rs:302`.
+  succeeded or failed: the withdrawal is retained in the transaction store
+  (info kept), but a dispute of a withdrawal is detected by its `kind` and
+  ignored.
+  - Decided in: `crates/service/src/consumer.rs:342`.
 - **`ignored-row-client-output`** — A client appearing only in ignored
   dispute/resolve/chargeback rows is omitted (those arms return early without
   creating account state).

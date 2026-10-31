@@ -8,9 +8,9 @@ mod tests {
     use mockall::predicate::{always, eq};
     use record_processor_domain::client_id::ClientId;
     use record_processor_domain::input::TxId;
-    use service::engine_state::{KvState, LoadClientError, LoadDepositError, StoreClientError};
+    use service::engine_state::{KvState, LoadClientError, LoadTxError, StoreClientError};
     use service::{
-        DepositState, DepositStateParts, DepositStatus, ServiceState, ServiceStateParts, State as _,
+        ServiceState, ServiceStateParts, State as _, TxKind, TxRecord, TxRecordParts, TxStatus,
     };
     use storage::kv::MockKv;
     use storage::mocks::{MockLoadError, MockStoreError};
@@ -18,8 +18,8 @@ mod tests {
 
     /// The client store double.
     type Clients = MockKv<ClientId, ServiceState>;
-    /// The deposit store double.
-    type Deposits = MockKv<TxId, DepositState>;
+    /// The transaction store double.
+    type Records = MockKv<TxId, TxRecord>;
 
     /// Build a service state to store.
     fn service_state(available: u64, held: u64, locked: bool) -> ServiceState {
@@ -30,9 +30,10 @@ mod tests {
         })
     }
 
-    /// Build a deposit state to store.
-    fn deposit_state(client: u16, status: DepositStatus) -> DepositState {
-        DepositState::from(DepositStateParts {
+    /// Build a transaction record to store.
+    fn tx_record(client: u16, status: TxStatus) -> TxRecord {
+        TxRecord::from(TxRecordParts {
+            kind: TxKind::Deposit,
             amount: rust_decimal::Decimal::ONE,
             client: ClientId::from(client),
             status,
@@ -47,10 +48,10 @@ mod tests {
         let _expectation = clients.expect_load().times(1).returning(
             |_key, _cancel| -> Result<Option<ServiceState>, MockLoadError> { Err(MockLoadError) },
         );
-        let deposits = Deposits::new();
+        let records = Records::new();
         let state = KvState {
             clients: &clients,
-            deposits: &deposits,
+            transactions: &records,
         };
         let loaded = state
             .load_client(ClientId::from(7), &CancellationToken::new())
@@ -77,10 +78,10 @@ mod tests {
                     Ok(Some(stored))
                 },
             );
-        let deposits = Deposits::new();
+        let records = Records::new();
         let state = KvState {
             clients: &clients,
-            deposits: &deposits,
+            transactions: &records,
         };
         let loaded = state
             .load_client(ClientId::from(7), &CancellationToken::new())
@@ -101,10 +102,10 @@ mod tests {
         let _expectation = clients.expect_store().times(1).returning(
             |_key, _value, _cancel| -> Result<(), MockStoreError> { Err(MockStoreError) },
         );
-        let deposits = Deposits::new();
+        let records = Records::new();
         let state = KvState {
             clients: &clients,
-            deposits: &deposits,
+            transactions: &records,
         };
         let stored_state = state
             .store_client(ClientId::from(7), stored, &CancellationToken::new())
@@ -127,10 +128,10 @@ mod tests {
             .with(eq(ClientId::from(7)), eq(stored), always())
             .times(1)
             .returning(|_key, _value, _cancel| -> Result<(), MockStoreError> { Ok(()) });
-        let deposits = Deposits::new();
+        let records = Records::new();
         let state = KvState {
             clients: &clients,
-            deposits: &deposits,
+            transactions: &records,
         };
         let stored_state = state
             .store_client(ClientId::from(7), stored, &CancellationToken::new())
@@ -143,27 +144,27 @@ mod tests {
     }
 
     #[rudzio::test]
-    async fn load_deposit_returns_stored_state(
+    async fn load_tx_returns_stored_state(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let stored = deposit_state(3, DepositStatus::Disputed);
+        let stored = tx_record(3, TxStatus::Disputed);
         let clients = Clients::new();
-        let mut deposits = Deposits::new();
-        let _expectation = deposits
+        let mut records = Records::new();
+        let _expectation = records
             .expect_load()
             .with(eq(TxId::from(9)), always())
             .times(1)
             .returning(
-                move |_key, _cancel| -> Result<Option<DepositState>, MockLoadError> {
+                move |_key, _cancel| -> Result<Option<TxRecord>, MockLoadError> {
                     Ok(Some(stored))
                 },
             );
         let state = KvState {
             clients: &clients,
-            deposits: &deposits,
+            transactions: &records,
         };
         let loaded = state
-            .load_deposit(TxId::from(9), &CancellationToken::new())
+            .load_tx(TxId::from(9), &CancellationToken::new())
             .await;
         anyhow::ensure!(
             matches!(loaded, Ok(Some(found)) if found == stored),
@@ -173,23 +174,23 @@ mod tests {
     }
 
     #[rudzio::test]
-    async fn load_deposit_propagates_load_failure(
+    async fn load_tx_propagates_load_failure(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
         let clients = Clients::new();
-        let mut deposits = Deposits::new();
-        let _expectation = deposits.expect_load().times(1).returning(
-            |_key, _cancel| -> Result<Option<DepositState>, MockLoadError> { Err(MockLoadError) },
+        let mut records = Records::new();
+        let _expectation = records.expect_load().times(1).returning(
+            |_key, _cancel| -> Result<Option<TxRecord>, MockLoadError> { Err(MockLoadError) },
         );
         let state = KvState {
             clients: &clients,
-            deposits: &deposits,
+            transactions: &records,
         };
         let loaded = state
-            .load_deposit(TxId::from(9), &CancellationToken::new())
+            .load_tx(TxId::from(9), &CancellationToken::new())
             .await;
         anyhow::ensure!(
-            matches!(loaded, Err(LoadDepositError::Load(MockLoadError))),
+            matches!(loaded, Err(LoadTxError::Load(MockLoadError))),
             "unexpected load {loaded:?}"
         );
         Ok(())

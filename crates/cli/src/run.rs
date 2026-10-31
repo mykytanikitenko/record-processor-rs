@@ -5,7 +5,7 @@ use allocator_api2::alloc::Global;
 use allocator_api2::boxed::Box;
 use futures_util::future::Either;
 use service::engine_state::KvState;
-use service::{ClientId, DepositState, EngineParts, ServiceState, State, Transaction, TxId};
+use service::{ClientId, EngineParts, ServiceState, State, Transaction, TxId, TxRecord};
 use std::hash::RandomState;
 use storage::memory_kv::{KeysError, LoadError, MemoryKv, Parts as KvParts, StoreError};
 use storage::memory_queue::{MemoryQueue, Parts as QueueParts};
@@ -13,29 +13,29 @@ use tokio_util::sync::CancellationToken;
 
 /// The in-memory store of each client's account state.
 type Clients = MemoryKv<ClientId, ServiceState, RandomState, Global>;
-/// The in-memory store of each deposit's lifecycle.
-type Deposits = MemoryKv<TxId, DepositState, RandomState, Global>;
+/// The in-memory store of each transaction's lifecycle.
+type Records = MemoryKv<TxId, TxRecord, RandomState, Global>;
 /// The in-memory transaction queue.
 type Queue = MemoryQueue<Transaction, Global>;
 /// The payments engine over the in-memory storage.
 type Engine = service::Engine<Queue, MemoryState>;
 
-/// The engine state: per-client account state and the deposit lifecycle, both
-/// held in memory.
+/// The engine state: per-client account state and the transaction lifecycle,
+/// both held in memory.
 #[derive(Debug)]
 struct MemoryState {
     /// The store holding each client's account state.
     clients: Clients,
-    /// The store holding each deposit's lifecycle.
-    deposits: Deposits,
+    /// The store holding each transaction's lifecycle.
+    records: Records,
 }
 
 impl State for MemoryState {
     type ClientsError = service::ClientsError<KeysError, LoadError>;
     type LoadClientError = service::LoadClientError<LoadError>;
-    type LoadDepositError = service::LoadDepositError<LoadError>;
+    type LoadTxError = service::LoadTxError<LoadError>;
     type StoreClientError = service::StoreClientError<StoreError>;
-    type StoreDepositError = service::StoreDepositError<StoreError>;
+    type StoreTxError = service::StoreTxError<StoreError>;
 
     #[inline]
     async fn load_client(
@@ -45,23 +45,23 @@ impl State for MemoryState {
     ) -> Result<Option<ServiceState>, Self::LoadClientError> {
         KvState {
             clients: &self.clients,
-            deposits: &self.deposits,
+            transactions: &self.records,
         }
         .load_client(client, cancel)
         .await
     }
 
     #[inline]
-    async fn load_deposit(
+    async fn load_tx(
         &self,
         tx: TxId,
         cancel: &CancellationToken,
-    ) -> Result<Option<DepositState>, Self::LoadDepositError> {
+    ) -> Result<Option<TxRecord>, Self::LoadTxError> {
         KvState {
             clients: &self.clients,
-            deposits: &self.deposits,
+            transactions: &self.records,
         }
-        .load_deposit(tx, cancel)
+        .load_tx(tx, cancel)
         .await
     }
 
@@ -73,7 +73,7 @@ impl State for MemoryState {
     ) -> Result<Option<(ClientId, ServiceState)>, Self::ClientsError> {
         KvState {
             clients: &self.clients,
-            deposits: &self.deposits,
+            transactions: &self.records,
         }
         .next_client(after, cancel)
         .await
@@ -88,24 +88,24 @@ impl State for MemoryState {
     ) -> Result<(), Self::StoreClientError> {
         KvState {
             clients: &self.clients,
-            deposits: &self.deposits,
+            transactions: &self.records,
         }
         .store_client(client, state, cancel)
         .await
     }
 
     #[inline]
-    async fn store_deposit(
+    async fn store_tx(
         &self,
         tx: TxId,
-        state: DepositState,
+        state: TxRecord,
         cancel: &CancellationToken,
-    ) -> Result<(), Self::StoreDepositError> {
+    ) -> Result<(), Self::StoreTxError> {
         KvState {
             clients: &self.clients,
-            deposits: &self.deposits,
+            transactions: &self.records,
         }
-        .store_deposit(tx, state, cancel)
+        .store_tx(tx, state, cancel)
         .await
     }
 }
@@ -183,12 +183,12 @@ async fn process(
         alloc: Global,
         hasher: RandomState::new(),
     });
-    let deposits: Deposits = MemoryKv::from(KvParts {
+    let records: Records = MemoryKv::from(KvParts {
         alloc: Global,
         hasher: RandomState::new(),
     });
     let queue: Queue = MemoryQueue::from(QueueParts { alloc: Global });
-    let state = MemoryState { clients, deposits };
+    let state = MemoryState { clients, records };
     let engine = Engine::from(EngineParts { queue, state });
     transport::serve(engine, source, token)
         .await

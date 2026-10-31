@@ -11,8 +11,8 @@ pub use consumer::{
     ApplyError, BalanceError, BalanceStream, ConsumeError, Consumer, Engine, EngineParts,
 };
 pub use engine_state::{
-    ClientsError, DepositState, DepositStateParts, DepositStatus, KvState, LoadClientError,
-    LoadDepositError, ServiceState, ServiceStateParts, State, StoreClientError, StoreDepositError,
+    ClientsError, KvState, LoadClientError, LoadTxError, ServiceState, ServiceStateParts, State,
+    StoreClientError, StoreTxError, TxKind, TxRecord, TxRecordParts, TxStatus,
 };
 pub use stream::{Balances, Transactions};
 
