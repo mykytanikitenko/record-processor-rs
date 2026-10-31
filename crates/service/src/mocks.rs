@@ -10,15 +10,15 @@ pub struct MockLoadClientError;
 #[error("mocked client state store failure")]
 pub struct MockStoreClientError;
 
-/// Failure scripted into a mocked [`crate::engine_state::State::load_deposit`].
+/// Failure scripted into a mocked [`crate::engine_state::State::load_tx`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[error("mocked deposit state load failure")]
-pub struct MockLoadDepositError;
+#[error("mocked transaction state load failure")]
+pub struct MockLoadTxError;
 
-/// Failure scripted into a mocked [`crate::engine_state::State::store_deposit`].
+/// Failure scripted into a mocked [`crate::engine_state::State::store_tx`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[error("mocked deposit state store failure")]
-pub struct MockStoreDepositError;
+#[error("mocked transaction state store failure")]
+pub struct MockStoreTxError;
 
 /// Failure scripted into a mocked [`crate::engine_state::State::next_client`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]

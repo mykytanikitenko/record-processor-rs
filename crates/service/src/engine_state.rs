@@ -1,4 +1,4 @@
-//! The service-side engine state: per-client account state and the deposit
+//! The service-side engine state: per-client account state and the transaction
 //! lifecycle, composed over the storage key-value contract.
 //!
 //! The state is deliberately service-owned rather than reusing the storage
@@ -74,11 +74,21 @@ impl From<ServiceStateParts> for ServiceState {
     }
 }
 
-/// The lifecycle stage of a recorded deposit.
+/// Whether a recorded transaction credited or debited its client.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum DepositStatus {
-    /// The deposit is intact and its funds are available.
+pub enum TxKind {
+    /// The transaction credited the client.
+    Deposit,
+    /// The transaction debited the client.
+    Withdrawal,
+}
+
+/// The lifecycle stage of a recorded transaction.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum TxStatus {
+    /// The transaction is intact and its funds are settled.
     Available,
     /// The deposit was reversed by a chargeback and its funds are gone.
     ChargedBack,
@@ -86,71 +96,83 @@ pub enum DepositStatus {
     Disputed,
 }
 
-/// The stored lifecycle of one deposit, referenced by later dispute, resolve,
-/// or chargeback actions.
+/// The stored lifecycle of one transaction, referenced by later dispute,
+/// resolve, or chargeback actions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DepositState {
-    /// The deposited amount.
+pub struct TxRecord {
+    /// The transaction amount.
     amount: Decimal,
-    /// The client the deposit was credited to.
+    /// The client the transaction was applied to.
     client: ClientId,
+    /// Whether the transaction is a deposit or a withdrawal.
+    kind: TxKind,
     /// The current lifecycle stage.
-    status: DepositStatus,
+    status: TxStatus,
 }
 
-impl DepositState {
-    /// The deposited amount.
+impl TxRecord {
+    /// The transaction amount.
     #[must_use]
     #[inline]
     pub const fn amount(&self) -> Decimal {
         self.amount
     }
 
-    /// The client the deposit was credited to.
+    /// The client the transaction was applied to.
     #[must_use]
     #[inline]
     pub const fn client(&self) -> ClientId {
         self.client
     }
 
+    /// Whether the transaction is a deposit or a withdrawal.
+    #[must_use]
+    #[inline]
+    pub const fn kind(&self) -> TxKind {
+        self.kind
+    }
+
     /// The current lifecycle stage.
     #[must_use]
     #[inline]
-    pub const fn status(&self) -> DepositStatus {
+    pub const fn status(&self) -> TxStatus {
         self.status
     }
 }
 
-/// Input fields for constructing a [`DepositState`].
+/// Input fields for constructing a [`TxRecord`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DepositStateParts {
-    /// The deposited amount.
+pub struct TxRecordParts {
+    /// The transaction amount.
     pub amount: Decimal,
-    /// The client the deposit was credited to.
+    /// The client the transaction was applied to.
     pub client: ClientId,
+    /// Whether the transaction is a deposit or a withdrawal.
+    pub kind: TxKind,
     /// The current lifecycle stage.
-    pub status: DepositStatus,
+    pub status: TxStatus,
 }
 
-impl From<DepositStateParts> for DepositState {
+impl From<TxRecordParts> for TxRecord {
     #[inline]
-    fn from(parts: DepositStateParts) -> Self {
+    fn from(parts: TxRecordParts) -> Self {
         Self {
             amount: parts.amount,
             client: parts.client,
+            kind: parts.kind,
             status: parts.status,
         }
     }
 }
 
-/// The engine state: per-client account state and the deposit lifecycle.
+/// The engine state: per-client account state and the transaction lifecycle.
 #[cfg_attr(
     feature = "mocks",
     mockall::automock(
         type LoadClientError = crate::mocks::MockLoadClientError;
-        type LoadDepositError = crate::mocks::MockLoadDepositError;
+        type LoadTxError = crate::mocks::MockLoadTxError;
         type StoreClientError = crate::mocks::MockStoreClientError;
-        type StoreDepositError = crate::mocks::MockStoreDepositError;
+        type StoreTxError = crate::mocks::MockStoreTxError;
         type ClientsError = crate::mocks::MockClientsError;
     )
 )]
@@ -159,12 +181,12 @@ pub trait State {
     type ClientsError: Error;
     /// The error produced by [`State::load_client`].
     type LoadClientError: Error;
-    /// The error produced by [`State::load_deposit`].
-    type LoadDepositError: Error;
+    /// The error produced by [`State::load_tx`].
+    type LoadTxError: Error;
     /// The error produced by [`State::store_client`].
     type StoreClientError: Error;
-    /// The error produced by [`State::store_deposit`].
-    type StoreDepositError: Error;
+    /// The error produced by [`State::store_tx`].
+    type StoreTxError: Error;
 
     /// Return the account state stored for `client`, or `None` when absent.
     async fn load_client(
@@ -173,12 +195,12 @@ pub trait State {
         cancel: &CancellationToken,
     ) -> Result<Option<ServiceState>, Self::LoadClientError>;
 
-    /// Return the deposit lifecycle stored for `tx`, or `None` when absent.
-    async fn load_deposit(
+    /// Return the transaction lifecycle stored for `tx`, or `None` when absent.
+    async fn load_tx(
         &self,
         tx: TxId,
         cancel: &CancellationToken,
-    ) -> Result<Option<DepositState>, Self::LoadDepositError>;
+    ) -> Result<Option<TxRecord>, Self::LoadTxError>;
 
     /// Return the smallest stored client strictly greater than `after`, in
     /// ascending client order, or `None` when `after` is the greatest client.
@@ -197,22 +219,22 @@ pub trait State {
         cancel: &CancellationToken,
     ) -> Result<(), Self::StoreClientError>;
 
-    /// Store `state` for `tx`, replacing any previous deposit lifecycle.
-    async fn store_deposit(
+    /// Store `state` for `tx`, replacing any previous transaction lifecycle.
+    async fn store_tx(
         &self,
         tx: TxId,
-        state: DepositState,
+        state: TxRecord,
         cancel: &CancellationToken,
-    ) -> Result<(), Self::StoreDepositError>;
+    ) -> Result<(), Self::StoreTxError>;
 }
 
-/// The [`State`] composed over a client store and a deposit store.
+/// The [`State`] composed over a client store and a transaction store.
 #[derive(Clone, Copy, Debug)]
 pub struct KvState<'kv, C, D> {
     /// The store holding each client's account state.
     pub clients: &'kv C,
-    /// The store holding each deposit's lifecycle.
-    pub deposits: &'kv D,
+    /// The store holding each transaction's lifecycle.
+    pub transactions: &'kv D,
 }
 
 /// Failure to load a client's account state.
@@ -224,12 +246,12 @@ pub enum LoadClientError<E> {
     Load(E),
 }
 
-/// Failure to load a deposit's lifecycle.
+/// Failure to load a transaction's lifecycle.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum LoadDepositError<E> {
-    /// The deposit store failed.
-    #[error("loading the deposit state failed: {0}")]
+pub enum LoadTxError<E> {
+    /// The transaction store failed.
+    #[error("loading the transaction state failed: {0}")]
     Load(E),
 }
 
@@ -242,12 +264,12 @@ pub enum StoreClientError<E> {
     Store(E),
 }
 
-/// Failure to store a deposit's lifecycle.
+/// Failure to store a transaction's lifecycle.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum StoreDepositError<E> {
-    /// The deposit store failed.
-    #[error("storing the deposit state failed: {0}")]
+pub enum StoreTxError<E> {
+    /// The transaction store failed.
+    #[error("storing the transaction state failed: {0}")]
     Store(E),
 }
 
@@ -266,13 +288,13 @@ pub enum ClientsError<K, L> {
 impl<C, D> State for KvState<'_, C, D>
 where
     C: Kv<ClientId, ServiceState>,
-    D: Kv<TxId, DepositState>,
+    D: Kv<TxId, TxRecord>,
 {
     type ClientsError = ClientsError<C::KeysError, C::LoadError>;
     type LoadClientError = LoadClientError<C::LoadError>;
-    type LoadDepositError = LoadDepositError<D::LoadError>;
+    type LoadTxError = LoadTxError<D::LoadError>;
     type StoreClientError = StoreClientError<C::StoreError>;
-    type StoreDepositError = StoreDepositError<D::StoreError>;
+    type StoreTxError = StoreTxError<D::StoreError>;
 
     #[inline]
     async fn load_client(
@@ -287,15 +309,15 @@ where
     }
 
     #[inline]
-    async fn load_deposit(
+    async fn load_tx(
         &self,
         tx: TxId,
         cancel: &CancellationToken,
-    ) -> Result<Option<DepositState>, Self::LoadDepositError> {
-        self.deposits
+    ) -> Result<Option<TxRecord>, Self::LoadTxError> {
+        self.transactions
             .load(tx, cancel)
             .await
-            .map_err(LoadDepositError::Load)
+            .map_err(LoadTxError::Load)
     }
 
     #[inline]
@@ -340,15 +362,15 @@ where
     }
 
     #[inline]
-    async fn store_deposit(
+    async fn store_tx(
         &self,
         tx: TxId,
-        state: DepositState,
+        state: TxRecord,
         cancel: &CancellationToken,
-    ) -> Result<(), Self::StoreDepositError> {
-        self.deposits
+    ) -> Result<(), Self::StoreTxError> {
+        self.transactions
             .store(tx, state, cancel)
             .await
-            .map_err(StoreDepositError::Store)
+            .map_err(StoreTxError::Store)
     }
 }
