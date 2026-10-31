@@ -10,7 +10,8 @@ use crate::offset::Offset;
 /// An append-only, unbounded queue of `T` records.
 ///
 /// Takes `&self` so a producer and consumers share the queue by reference;
-/// a backing serialises appends internally.
+/// the backing uses interior mutability, relying on the single-threaded
+/// runtime for safety.
 pub trait Queue<T> {
     /// The error produced by [`Queue::append`].
     type AppendError: Error;

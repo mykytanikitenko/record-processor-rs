@@ -16,7 +16,6 @@ features = ["mocks"]
 
 [dependencies]
 allocator-api2 = { workspace = true }
-async-lock = { workspace = true }
 derive_more = { workspace = true }
 event-listener = { workspace = true }
 hashbrown = { workspace = true }

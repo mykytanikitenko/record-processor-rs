@@ -6,8 +6,8 @@ use tokio_util::sync::CancellationToken;
 
 /// A key-value store of `V` values keyed by `K`.
 ///
-/// Takes `&self` so workers share the store by reference; a backing
-/// synchronises access internally.
+/// Takes `&self` so workers share the store by reference; the backing uses
+/// interior mutability, relying on the single-threaded runtime for safety.
 #[cfg_attr(
     feature = "mocks",
     mockall::automock(
