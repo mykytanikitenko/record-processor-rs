@@ -1415,7 +1415,14 @@ dependencies = [
 name = "service"
 version = "0.1.0"
 dependencies = [
+ "allocator-api2",
+ "anyhow",
+ "mockall",
  "record-processor-domain",
+ "rudzio",
+ "rust_decimal",
+ "storage",
+ "thiserror",
  "tokio-util",
 ]
 

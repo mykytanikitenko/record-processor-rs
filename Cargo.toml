@@ -79,6 +79,7 @@ serde = { version = "=1.0.229", default-features = false, features = [
   "std",
 ] }
 service = { path = "crates/service", default-features = false, features = [] }
+storage = { path = "crates/storage", default-features = false, features = [] }
 thiserror = { version = "=2.0.21", default-features = false, features = [
   "std",
 ] }

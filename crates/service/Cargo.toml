@@ -12,8 +12,33 @@ repository.workspace = true
 autotests = false
 
 [dependencies]
+mockall = { workspace = true, optional = true }
 record-processor-domain = { workspace = true }
+rust_decimal = { workspace = true }
+storage = { workspace = true }
+thiserror = { workspace = true }
 tokio-util = { workspace = true }
+
+[dev-dependencies]
+allocator-api2.workspace = true
+anyhow.workspace = true
+mockall.workspace = true
+record-processor-domain.workspace = true
+rudzio.workspace = true
+rust_decimal.workspace = true
+storage.workspace = true
+tokio-util.workspace = true
+
+[features]
+mocks = ["dep:mockall", "storage/mocks"]
+
+[package.metadata.rudzio]
+features = ["mocks"]
+
+[[test]]
+name = "main"
+path = "tests/main.rs"
+harness = false
 
 [lints]
 workspace = true
