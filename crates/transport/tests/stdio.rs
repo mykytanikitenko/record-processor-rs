@@ -34,10 +34,7 @@ mod tests {
         let Some(batch) = adapter.next_batch(&token).await? else {
             anyhow::bail!("expected a batch, got None");
         };
-        anyhow::ensure!(
-            batch == expected.as_slice(),
-            "unexpected batch: {batch:?}"
-        );
+        anyhow::ensure!(batch == expected.as_slice(), "unexpected batch: {batch:?}");
 
         anyhow::ensure!(
             adapter.next_batch(&token).await?.is_none(),
