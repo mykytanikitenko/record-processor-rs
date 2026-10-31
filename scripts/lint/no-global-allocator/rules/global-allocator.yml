@@ -1,0 +1,20 @@
+id: global-allocator
+language: Rust
+severity: info
+message: "concrete `Global` allocator named; thread `A: Allocator` and pass it by value (the CLI composition root is the sole permitted site)"
+rule:
+  any:
+    - kind: use_declaration
+      regex: '(allocator_api2|std)::alloc::Global'
+    - kind: scoped_identifier
+      regex: '^(allocator_api2|std)::alloc::Global$'
+      not:
+        inside:
+          kind: use_declaration
+          stopBy: end
+    - kind: scoped_type_identifier
+      regex: '^(allocator_api2|std)::alloc::Global$'
+      not:
+        inside:
+          kind: use_declaration
+          stopBy: end

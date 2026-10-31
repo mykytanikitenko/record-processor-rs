@@ -208,7 +208,8 @@ async fn cancel_on_signal(token: CancellationToken) -> Result<(), CancelError> {
 async fn open_queue_file() -> Result<compio::fs::File, QueueOpenError> {
     // Backing file is unique per process so concurrent runs never share a
     // mapping; the queue truncates and re-sizes it on every open.
-    let path = std::env::temp_dir().join(std::process::id().to_string());
+    // TODO(lint/no-implicit-alloc): implicit heap allocation via `format!("{}", std::process::id())`; use a memory-mapped, reused-buffer, or borrowed alternative
+    let path = std::env::temp_dir().join(format!("{}", std::process::id()));
     let file = compio::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -242,7 +243,7 @@ async fn process(
     .map_err(QueueOpenError::Map)?;
     let state = MemoryState { clients, records };
     let engine = Engine::from(EngineParts { queue, state });
-    transport::serve(engine, source, token)
+    transport::serve::<_, _, Global>(engine, source, token)
         .await
         .map_err(|error| ProcessError::Serve(Box::from(error)))?;
     Ok(())

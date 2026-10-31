@@ -49,6 +49,14 @@ lint-no-materialize:
 lint-no-tokio-runtime:
     @fish scripts/lint/no-tokio-runtime.fish
 
+# Run the no-global-allocator sub-lint in isolation.
+lint-no-global-allocator:
+    @fish scripts/lint/no-global-allocator.fish
+
+# Run the no-to-string sub-lint in isolation.
+lint-no-to-string:
+    @fish scripts/lint/no-to-string.fish
+
 # Apply all formatters (Rust, TOML, Markdown, Nix, Justfile).
 fmt:
     @fish scripts/fmt.fish

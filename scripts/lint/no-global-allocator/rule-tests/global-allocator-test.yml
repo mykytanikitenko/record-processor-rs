@@ -1,0 +1,10 @@
+id: global-allocator
+valid:
+  - 'use allocator_api2::alloc::Allocator;'
+  - 'use std::alloc::Allocator;'
+  - 'fn f<A: Allocator>(alloc: A) {}'
+  - 'let x: usize = 1;'
+invalid:
+  - 'use allocator_api2::alloc::Global;'
+  - 'use std::alloc::Global;'
+  - 'fn f(a: allocator_api2::alloc::Global) {}'

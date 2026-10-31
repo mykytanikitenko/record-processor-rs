@@ -5,6 +5,7 @@ use rudzio::runtime::compio::Runtime;
 
 #[rudzio::suite([(runtime = Runtime::new, suite = Suite, test = rudzio::common::context::Test)])]
 mod tests {
+    use allocator_api2::alloc::Global;
     use rust_decimal::Decimal;
     use service::{Amount, ClientId, Transaction, Transactions as _, TxId};
     use std::str::FromStr as _;
@@ -25,7 +26,7 @@ mod tests {
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
         let token = CancellationToken::new();
-        let mut adapter = Transactions::from(Input::Stream(
+        let mut adapter = Transactions::<_, Global>::from(Input::Stream(
             b"type,client,tx,amount\ndeposit,1,1,1.0\ndeposit,2,2,2.5\n".as_slice(),
         ));
 
