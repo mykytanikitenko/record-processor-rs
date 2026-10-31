@@ -270,9 +270,10 @@ eleven fixtures now run to completion (`outcome = "success"`) against a
 checked-in `expected.csv`.
 
 - **`failed-withdrawal-new-client`** — A withdrawal against a client with no
-  record is ignored: no account is created, so the client is omitted from the
-  output.
-  - Decided in: `crates/service/src/consumer.rs:272`.
+  record creates the record (spec: "If a client doesn't exist create a new
+  record"), then fails for insufficient funds, leaving the record at zero; the
+  client is emitted with zero balances.
+  - Decided in: `crates/service/src/consumer.rs:273`.
 - **`dispute-withdrawal`** — Dispute references only recorded deposits;
   disputing a withdrawal (never stored as a deposit) is ignored.
   - Decided in: `crates/service/src/consumer.rs:302`.

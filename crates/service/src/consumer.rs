@@ -263,13 +263,24 @@ where
                 Ok(())
             }
             Transaction::Withdrawal { client, amount, .. } => {
-                let Some(state) = self
+                let state = if let Some(state) = self
                     .state
                     .load_client(client, cancel)
                     .await
                     .map_err(ApplyError::LoadClient)?
-                else {
-                    return Ok(());
+                {
+                    state
+                } else {
+                    let zeroed = ServiceState::from(ServiceStateParts {
+                        available: Decimal::ZERO,
+                        held: Decimal::ZERO,
+                        locked: false,
+                    });
+                    self.state
+                        .store_client(client, zeroed, cancel)
+                        .await
+                        .map_err(ApplyError::StoreClient)?;
+                    zeroed
                 };
                 if state.available() < *amount {
                     return Ok(());
