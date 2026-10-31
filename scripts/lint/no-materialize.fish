@@ -89,14 +89,15 @@ function _self_test
         '    let xs: Vec<Transaction> = todo!();' \
         '    let ys: VecDeque<ClientId> = todo!();' \
         '    let zs: Box<[Transaction]> = todo!();' \
+        '    let ws: Vec<Transaction, A> = Vec::new_in(alloc);' \
         '}' >"$dir/flag/mat.rs"
 
     set -l flag_out (mktemp)
     _run_pipeline "$dir/flag" "$flag_out"
     or return 1
     set -l flag_total (string trim (wc -l < "$flag_out"))
-    if test "$flag_total" -lt 3
-        echo "✗ no-materialize: self-test failed — expected >=3 findings, got $flag_total" >&2
+    if test "$flag_total" -lt 4
+        echo "✗ no-materialize: self-test failed — expected >=4 findings, got $flag_total" >&2
         jq -c . "$flag_out" >&2
         return 1
     end
@@ -107,6 +108,7 @@ function _self_test
         'fn f() {' \
         '    let xs: Vec<u8> = todo!();' \
         '    let ys: Vec<String> = todo!();' \
+        '    let zs: Vec<T, A> = Vec::new_in(alloc);' \
         '}' >"$dir/pass/non-domain.rs"
     printf '%s\n' \
         '#[cfg(test)]' \

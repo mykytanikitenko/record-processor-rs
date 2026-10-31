@@ -1503,11 +1503,13 @@ dependencies = [
  "async-lock",
  "derive_more",
  "event-listener",
+ "futures-util",
  "hashbrown",
  "mockall",
  "record-processor-domain",
  "rudzio",
  "rust_decimal",
+ "storage",
  "thiserror",
  "tokio-util",
 ]
