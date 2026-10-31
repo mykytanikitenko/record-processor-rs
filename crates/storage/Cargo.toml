@@ -11,6 +11,9 @@ readme.workspace = true
 repository.workspace = true
 autotests = false
 
+[package.metadata.rudzio]
+features = ["mocks"]
+
 [dependencies]
 allocator-api2 = { workspace = true }
 async-lock = { workspace = true }
@@ -23,10 +26,14 @@ thiserror = { workspace = true }
 tokio-util = { workspace = true }
 
 [dev-dependencies]
+allocator-api2.workspace = true
 anyhow.workspace = true
+futures-util.workspace = true
+mockall.workspace = true
 record-processor-domain.workspace = true
 rudzio.workspace = true
 rust_decimal.workspace = true
+tokio-util.workspace = true
 
 [features]
 mocks = ["dep:mockall"]
