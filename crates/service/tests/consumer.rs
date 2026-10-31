@@ -6,22 +6,75 @@ use rudzio::runtime::futures::ThreadPool;
 #[rudzio::suite([(runtime = ThreadPool::new, suite = Suite, test = rudzio::common::context::Test)])]
 mod tests {
     use allocator_api2::alloc::Global;
+    use core::cell::Cell;
+    use core::convert::Infallible;
     use mockall::predicate::{always, eq};
     use record_processor_domain::client_id::ClientId;
     use record_processor_domain::input::{Amount, Transaction, TxId};
+    use record_processor_domain::output::{AccountBalance, Balance, Parts as BalanceParts};
     use rust_decimal::Decimal;
+    use service::Balances as _;
     use service::engine_state::MockState;
     use service::mocks::{
-        MockLoadClientError, MockLoadDepositError, MockStoreClientError, MockStoreDepositError,
+        MockClientsError, MockLoadClientError, MockLoadDepositError, MockStoreClientError,
+        MockStoreDepositError,
     };
     use service::{
-        ConsumeError, Consumer as _, DepositState, DepositStateParts, DepositStatus, Engine,
-        EngineParts, ServiceState, ServiceStateParts,
+        BalanceStream, ConsumeError, Consumer as _, DepositState, DepositStateParts, DepositStatus,
+        Engine, EngineParts, ServiceState, ServiceStateParts,
     };
     use std::str::FromStr as _;
-    use storage::memory_queue::{NextBatchError, Parts};
-    use storage::{MemoryQueue, Offset, Queue as _};
+    use storage::MemoryQueue;
+    use storage::memory_queue::Parts;
     use tokio_util::sync::CancellationToken;
+
+    /// A transaction batch source that yields its rows once, then ends.
+    #[derive(Debug)]
+    struct TransactionSource {
+        /// The rows yielded by [`TransactionSource::next_batch`].
+        rows: Vec<Transaction>,
+        /// Whether the rows have already been yielded.
+        yielded: Cell<bool>,
+    }
+
+    impl service::Transactions for TransactionSource {
+        type Error = Infallible;
+
+        async fn next_batch<'stream>(
+            &'stream self,
+            _cancel: &CancellationToken,
+        ) -> Result<Option<&'stream [Transaction]>, Self::Error> {
+            if self.yielded.replace(true) {
+                Ok(None)
+            } else {
+                Ok(Some(&self.rows))
+            }
+        }
+    }
+
+    /// A transaction source that reports cancellation as a typed error.
+    #[derive(Debug)]
+    struct CancelledSource;
+
+    /// Failure reported by [`CancelledSource`] once its token is cancelled.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+    #[error("cancelled")]
+    struct Cancelled;
+
+    impl service::Transactions for CancelledSource {
+        type Error = Cancelled;
+
+        async fn next_batch<'stream>(
+            &'stream self,
+            cancel: &CancellationToken,
+        ) -> Result<Option<&'stream [Transaction]>, Self::Error> {
+            if cancel.is_cancelled() {
+                Err(Cancelled)
+            } else {
+                Ok(None)
+            }
+        }
+    }
 
     /// Build a deposit transaction.
     fn deposit(client: u16, tx: u32, amount: &str) -> anyhow::Result<Transaction> {
@@ -87,15 +140,42 @@ mod tests {
         }))
     }
 
-    /// Append `rows` to a fresh queue and return it.
-    async fn queue(rows: Vec<Transaction>) -> anyhow::Result<MemoryQueue<Transaction, Global>> {
-        let queue = MemoryQueue::from(Parts { alloc: Global });
-        let offset = queue.append(&rows, &CancellationToken::new()).await?;
+    /// Build a balance row.
+    fn balance(
+        client: u16,
+        available: &str,
+        held: &str,
+        locked: bool,
+    ) -> anyhow::Result<AccountBalance> {
+        Ok(AccountBalance::try_from(BalanceParts {
+            client: ClientId::from(client),
+            available: Balance::from(Decimal::from_str(available)?),
+            held: Balance::from(Decimal::from_str(held)?),
+            locked,
+        })?)
+    }
+
+    /// Drain `balances` fully, asserting the concatenated rows equal `expected`.
+    async fn assert_balances<S>(
+        mut balances: BalanceStream<S>,
+        expected: &[AccountBalance],
+    ) -> anyhow::Result<()>
+    where
+        S: service::State + core::fmt::Debug,
+    {
+        let mut got: Vec<AccountBalance> = Vec::new();
+        loop {
+            match balances.next_batch(&CancellationToken::new()).await {
+                Ok(Some(rows)) => got.extend_from_slice(rows),
+                Ok(None) => break,
+                Err(error) => anyhow::bail!("unexpected balance error {error:?}"),
+            }
+        }
         anyhow::ensure!(
-            offset == Offset::from(0_u64),
-            "unexpected offset {offset:?}"
+            got.as_slice() == expected,
+            "unexpected balances {got:?}, expected {expected:?}"
         );
-        Ok(queue)
+        Ok(())
     }
 
     #[rudzio::test]
@@ -104,7 +184,11 @@ mod tests {
     ) -> anyhow::Result<()> {
         let stored_deposit = deposit_state(1, "1.5", DepositStatus::Available)?;
         let stored_client = service_state("1.5", "0.0", false)?;
-        let queue = queue(vec![deposit(1, 1, "1.5")?, Transaction::Eof]).await?;
+        let mut source = TransactionSource {
+            rows: vec![deposit(1, 1, "1.5")?],
+            yielded: Cell::new(false),
+        };
+        let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
         let _load_deposit = state
             .expect_load_deposit()
@@ -132,9 +216,22 @@ mod tests {
             .with(eq(ClientId::from(1)), eq(stored_client), always())
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), stored_client)))
+                } else {
+                    Ok(None)
+                }
+            },
+        );
         let engine = Engine::from(EngineParts { queue, state });
-        engine.consume(&CancellationToken::new()).await?;
-        Ok(())
+        let balances = engine
+            .consume(&CancellationToken::new(), &mut source)
+            .await?;
+        assert_balances(balances, &[balance(1, "1.5", "0.0", false)?]).await
     }
 
     #[rudzio::test]
@@ -143,7 +240,11 @@ mod tests {
     ) -> anyhow::Result<()> {
         let loaded = service_state("10.0", "0.0", false)?;
         let stored = service_state("6.0", "0.0", false)?;
-        let queue = queue(vec![withdrawal(1, 1, "4.0")?, Transaction::Eof]).await?;
+        let mut source = TransactionSource {
+            rows: vec![withdrawal(1, 1, "4.0")?],
+            yielded: Cell::new(false),
+        };
+        let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
         let _load_client = state
             .expect_load_client()
@@ -159,9 +260,22 @@ mod tests {
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), stored)))
+                } else {
+                    Ok(None)
+                }
+            },
+        );
         let engine = Engine::from(EngineParts { queue, state });
-        engine.consume(&CancellationToken::new()).await?;
-        Ok(())
+        let balances = engine
+            .consume(&CancellationToken::new(), &mut source)
+            .await?;
+        assert_balances(balances, &[balance(1, "6.0", "0.0", false)?]).await
     }
 
     #[rudzio::test]
@@ -169,7 +283,11 @@ mod tests {
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
         let loaded = service_state("10.0", "0.0", false)?;
-        let queue = queue(vec![withdrawal(1, 1, "20.0")?, Transaction::Eof]).await?;
+        let mut source = TransactionSource {
+            rows: vec![withdrawal(1, 1, "20.0")?],
+            yielded: Cell::new(false),
+        };
+        let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
         let _load_client = state
             .expect_load_client()
@@ -180,16 +298,33 @@ mod tests {
                     Ok(Some(loaded))
                 },
             );
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), loaded)))
+                } else {
+                    Ok(None)
+                }
+            },
+        );
         let engine = Engine::from(EngineParts { queue, state });
-        engine.consume(&CancellationToken::new()).await?;
-        Ok(())
+        let balances = engine
+            .consume(&CancellationToken::new(), &mut source)
+            .await?;
+        assert_balances(balances, &[balance(1, "10.0", "0.0", false)?]).await
     }
 
     #[rudzio::test]
     async fn withdrawal_new_client_is_ignored(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let queue = queue(vec![withdrawal(1, 1, "5.0")?, Transaction::Eof]).await?;
+        let mut source = TransactionSource {
+            rows: vec![withdrawal(1, 1, "5.0")?],
+            yielded: Cell::new(false),
+        };
+        let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
         let _load_client = state
             .expect_load_client()
@@ -200,9 +335,16 @@ mod tests {
                     Ok(None)
                 },
             );
+        let _next_client = state.expect_next_client().times(1).returning(
+            |_after: Option<ClientId>,
+             _cancel: &CancellationToken|
+             -> Result<Option<(ClientId, ServiceState)>, MockClientsError> { Ok(None) },
+        );
         let engine = Engine::from(EngineParts { queue, state });
-        engine.consume(&CancellationToken::new()).await?;
-        Ok(())
+        let balances = engine
+            .consume(&CancellationToken::new(), &mut source)
+            .await?;
+        assert_balances(balances, &[]).await
     }
 
     #[rudzio::test]
@@ -213,7 +355,11 @@ mod tests {
         let disputed = deposit_state(1, "10.0", DepositStatus::Disputed)?;
         let loaded = service_state("10.0", "0.0", false)?;
         let stored = service_state("0.0", "10.0", false)?;
-        let queue = queue(vec![dispute(1, 1), Transaction::Eof]).await?;
+        let mut source = TransactionSource {
+            rows: vec![dispute(1, 1)],
+            yielded: Cell::new(false),
+        };
+        let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
         let _load_deposit = state
             .expect_load_deposit()
@@ -243,9 +389,22 @@ mod tests {
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), stored)))
+                } else {
+                    Ok(None)
+                }
+            },
+        );
         let engine = Engine::from(EngineParts { queue, state });
-        engine.consume(&CancellationToken::new()).await?;
-        Ok(())
+        let balances = engine
+            .consume(&CancellationToken::new(), &mut source)
+            .await?;
+        assert_balances(balances, &[balance(1, "0.0", "10.0", false)?]).await
     }
 
     #[rudzio::test]
@@ -256,7 +415,11 @@ mod tests {
         let available = deposit_state(1, "10.0", DepositStatus::Available)?;
         let loaded = service_state("0.0", "10.0", false)?;
         let stored = service_state("10.0", "0.0", false)?;
-        let queue = queue(vec![resolve(1, 1), Transaction::Eof]).await?;
+        let mut source = TransactionSource {
+            rows: vec![resolve(1, 1)],
+            yielded: Cell::new(false),
+        };
+        let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
         let _load_deposit = state
             .expect_load_deposit()
@@ -286,9 +449,22 @@ mod tests {
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), stored)))
+                } else {
+                    Ok(None)
+                }
+            },
+        );
         let engine = Engine::from(EngineParts { queue, state });
-        engine.consume(&CancellationToken::new()).await?;
-        Ok(())
+        let balances = engine
+            .consume(&CancellationToken::new(), &mut source)
+            .await?;
+        assert_balances(balances, &[balance(1, "10.0", "0.0", false)?]).await
     }
 
     #[rudzio::test]
@@ -299,7 +475,11 @@ mod tests {
         let charged_back = deposit_state(1, "10.0", DepositStatus::ChargedBack)?;
         let loaded = service_state("0.0", "10.0", false)?;
         let stored = service_state("0.0", "0.0", true)?;
-        let queue = queue(vec![chargeback(1, 1), Transaction::Eof]).await?;
+        let mut source = TransactionSource {
+            rows: vec![chargeback(1, 1)],
+            yielded: Cell::new(false),
+        };
+        let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
         let _load_deposit = state
             .expect_load_deposit()
@@ -329,16 +509,33 @@ mod tests {
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>,
+                  _cancel: &CancellationToken|
+                  -> Result<Option<(ClientId, ServiceState)>, MockClientsError> {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), stored)))
+                } else {
+                    Ok(None)
+                }
+            },
+        );
         let engine = Engine::from(EngineParts { queue, state });
-        engine.consume(&CancellationToken::new()).await?;
-        Ok(())
+        let balances = engine
+            .consume(&CancellationToken::new(), &mut source)
+            .await?;
+        assert_balances(balances, &[balance(1, "0.0", "0.0", true)?]).await
     }
 
     #[rudzio::test]
     async fn dispute_unknown_tx_is_ignored(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let queue = queue(vec![dispute(1, 999), Transaction::Eof]).await?;
+        let mut source = TransactionSource {
+            rows: vec![dispute(1, 999)],
+            yielded: Cell::new(false),
+        };
+        let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
         let _load_deposit = state
             .expect_load_deposit()
@@ -347,13 +544,20 @@ mod tests {
             .returning(
                 |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> { Ok(None) },
             );
+        let _next_client = state.expect_next_client().times(1).returning(
+            |_after: Option<ClientId>,
+             _cancel: &CancellationToken|
+             -> Result<Option<(ClientId, ServiceState)>, MockClientsError> { Ok(None) },
+        );
         let engine = Engine::from(EngineParts { queue, state });
-        engine.consume(&CancellationToken::new()).await?;
-        Ok(())
+        let balances = engine
+            .consume(&CancellationToken::new(), &mut source)
+            .await?;
+        assert_balances(balances, &[]).await
     }
 
     #[rudzio::test]
-    async fn cancellation_ends_waiting_for_next_batch(
+    async fn cancellation_ends_reading_the_stream(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
         let queue = MemoryQueue::from(Parts { alloc: Global });
@@ -361,12 +565,10 @@ mod tests {
         let engine = Engine::from(EngineParts { queue, state });
         let cancel = CancellationToken::new();
         cancel.cancel();
-        let consumed = engine.consume(&cancel).await;
+        let mut source = CancelledSource;
+        let consumed = engine.consume(&cancel, &mut source).await;
         anyhow::ensure!(
-            matches!(
-                consumed,
-                Err(ConsumeError::NextBatch(NextBatchError::Cancelled))
-            ),
+            matches!(consumed, Err(ConsumeError::Stream(Cancelled))),
             "unexpected consume {consumed:?}"
         );
         Ok(())

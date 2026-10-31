@@ -151,9 +151,12 @@ impl From<DepositStateParts> for DepositState {
         type LoadDepositError = crate::mocks::MockLoadDepositError;
         type StoreClientError = crate::mocks::MockStoreClientError;
         type StoreDepositError = crate::mocks::MockStoreDepositError;
+        type ClientsError = crate::mocks::MockClientsError;
     )
 )]
 pub trait State {
+    /// The error produced by [`State::next_client`].
+    type ClientsError: Error;
     /// The error produced by [`State::load_client`].
     type LoadClientError: Error;
     /// The error produced by [`State::load_deposit`].
@@ -176,6 +179,15 @@ pub trait State {
         tx: TxId,
         cancel: &CancellationToken,
     ) -> Result<Option<DepositState>, Self::LoadDepositError>;
+
+    /// Return the smallest stored client strictly greater than `after`, in
+    /// ascending client order, or `None` when `after` is the greatest client.
+    /// Pass `None` to obtain the first client.
+    async fn next_client(
+        &self,
+        after: Option<ClientId>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<(ClientId, ServiceState)>, Self::ClientsError>;
 
     /// Store `state` for `client`, replacing any previous account state.
     async fn store_client(
@@ -239,11 +251,24 @@ pub enum StoreDepositError<E> {
     Store(E),
 }
 
+/// Failure to enumerate the stored clients.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ClientsError<K, L> {
+    /// The client store failed to enumerate its keys.
+    #[error("enumerating client keys failed: {0}")]
+    Keys(K),
+    /// The client store failed to load a client's state.
+    #[error("loading a client's state failed: {0}")]
+    Load(L),
+}
+
 impl<C, D> State for KvState<'_, C, D>
 where
     C: Kv<ClientId, ServiceState>,
     D: Kv<TxId, DepositState>,
 {
+    type ClientsError = ClientsError<C::KeysError, C::LoadError>;
     type LoadClientError = LoadClientError<C::LoadError>;
     type LoadDepositError = LoadDepositError<D::LoadError>;
     type StoreClientError = StoreClientError<C::StoreError>;
@@ -271,6 +296,34 @@ where
             .load(tx, cancel)
             .await
             .map_err(LoadDepositError::Load)
+    }
+
+    #[inline]
+    async fn next_client(
+        &self,
+        after: Option<ClientId>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<(ClientId, ServiceState)>, Self::ClientsError> {
+        let mut cursor = after;
+        loop {
+            let Some(client) = self
+                .clients
+                .next_key(cursor, cancel)
+                .await
+                .map_err(ClientsError::Keys)?
+            else {
+                return Ok(None);
+            };
+            if let Some(state) = self
+                .clients
+                .load(client, cancel)
+                .await
+                .map_err(ClientsError::Load)?
+            {
+                return Ok(Some((client, state)));
+            }
+            cursor = Some(client);
+        }
     }
 
     #[inline]

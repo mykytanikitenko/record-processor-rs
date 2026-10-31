@@ -8,6 +8,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::kv::Kv;
 
+/// Failure to enumerate the keys of the in-memory key-value store.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum KeysError {
+    /// The key enumeration was cancelled before the table was read.
+    #[error("key enumeration cancelled")]
+    Cancelled,
+}
+
 /// Failure to load a value from the in-memory key-value store.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
@@ -29,7 +38,7 @@ where
 
 impl<K, V, S, A> MemoryKv<K, V, S, A>
 where
-    K: Eq + Hash,
+    K: Eq + Hash + Clone,
     V: Copy,
     S: BuildHasher,
     A: Allocator,
@@ -49,6 +58,25 @@ where
     }
 }
 
+impl<K, V, S, A> MemoryKv<K, V, S, A>
+where
+    K: Eq + Hash + Clone + Ord,
+    V: Copy,
+    S: BuildHasher,
+    A: Allocator,
+{
+    /// Return the smallest stored key strictly greater than `after`, if any.
+    async fn next_key_inner(&self, after: Option<K>) -> Option<K> {
+        self.table
+            .lock()
+            .await
+            .keys()
+            .filter(|key| after.as_ref().is_none_or(|after_key| *key > after_key))
+            .min()
+            .cloned()
+    }
+}
+
 impl<K, V, S, A> From<Parts<S, A>> for MemoryKv<K, V, S, A>
 where
     A: Allocator,
@@ -63,11 +91,12 @@ where
 
 impl<K, V, S, A> Kv<K, V> for MemoryKv<K, V, S, A>
 where
-    K: Eq + Hash,
+    K: Eq + Hash + Clone + Ord,
     V: Copy,
     S: BuildHasher,
     A: Allocator,
 {
+    type KeysError = KeysError;
     type LoadError = LoadError;
     type StoreError = StoreError;
 
@@ -77,6 +106,18 @@ where
             .run_until_cancelled(self.read(key))
             .await
             .ok_or(LoadError::Cancelled)
+    }
+
+    #[inline]
+    async fn next_key(
+        &self,
+        after: Option<K>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<K>, Self::KeysError> {
+        cancel
+            .run_until_cancelled(self.next_key_inner(after))
+            .await
+            .ok_or(KeysError::Cancelled)
     }
 
     #[inline]

@@ -2,13 +2,14 @@
 //!
 //! A [`Consumer`] drains its transaction queue, applying each record to the
 //! engine [`State`](crate::engine_state::State), and stops at the end-of-stream
-//! marker. The concrete [`Type`] dispatches between the production
-//! [`Engine`] and a unit-test mock.
+//! marker. The resulting per-client balances are projected lazily through a
+//! [`BalanceStream`], one row at a time.
 
 use core::error::Error;
 
 use record_processor_domain::client_id::ClientId;
 use record_processor_domain::input::Transaction;
+use record_processor_domain::output::{AccountBalance, Balance, OverflowError, Parts};
 use rust_decimal::Decimal;
 use storage::offset::Offset;
 use storage::queue::Queue;
@@ -17,19 +18,83 @@ use tokio_util::sync::CancellationToken;
 use crate::engine_state::{
     DepositState, DepositStateParts, DepositStatus, ServiceState, ServiceStateParts, State,
 };
+use crate::stream::{Balances, Transactions};
 
-/// A payments consumer that drains its transaction queue into engine state.
-#[cfg_attr(
-    feature = "mocks",
-    mockall::automock(type ConsumeError = crate::mocks::MockConsumeError;)
-)]
-pub trait Consumer {
+/// A payments consumer that drains its transaction stream into engine state
+/// and projects the resulting per-client balances.
+pub trait Consumer<T>
+where
+    T: Transactions,
+{
+    /// The lazily-projected balance stream produced by [`Consumer::consume`].
+    type Balances: Balances;
     /// The error produced by [`Consumer::consume`].
     type ConsumeError: Error;
 
-    /// Drain the transaction queue, applying every record to engine state and
-    /// stopping at the end-of-stream marker.
-    async fn consume(&self, cancel: &CancellationToken) -> Result<(), Self::ConsumeError>;
+    /// Drain every transaction batch, applying each record to engine state,
+    /// then return a lazy stream of the resulting per-client balances.
+    async fn consume(
+        self,
+        cancel: &CancellationToken,
+        transactions: &mut T,
+    ) -> Result<Self::Balances, Self::ConsumeError>;
+}
+
+/// The account-balance rows a consumer projects, yielded one row at a time.
+#[derive(Debug)]
+pub struct BalanceStream<S> {
+    /// The client most recently yielded, used as the cursor for the next row.
+    next: Option<ClientId>,
+    /// The single projected row handed to the caller on the previous batch.
+    slot: Option<AccountBalance>,
+    /// The engine state balances are projected from.
+    state: S,
+}
+
+/// Failure to project a balance row from the engine state.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum BalanceError<S>
+where
+    S: State,
+{
+    /// Enumerating the client records failed.
+    #[error("enumerating the client records failed: {0}")]
+    Clients(S::ClientsError),
+    /// Projecting a client's balance total overflowed.
+    #[error(transparent)]
+    Overflow(#[from] OverflowError),
+}
+
+impl<S> Balances for BalanceStream<S>
+where
+    S: State + core::fmt::Debug,
+{
+    type Error = BalanceError<S>;
+
+    #[inline]
+    async fn next_batch<'stream>(
+        &'stream mut self,
+        cancel: &CancellationToken,
+    ) -> Result<Option<&'stream [AccountBalance]>, Self::Error> {
+        let Some((client, state)) = self
+            .state
+            .next_client(self.next, cancel)
+            .await
+            .map_err(BalanceError::Clients)?
+        else {
+            return Ok(None);
+        };
+        self.next = Some(client);
+        let row = AccountBalance::try_from(Parts {
+            client,
+            available: Balance::from(state.available()),
+            held: Balance::from(state.held()),
+            locked: state.locked(),
+        })?;
+        self.slot = Some(row);
+        Ok(self.slot.as_ref().map(core::slice::from_ref))
+    }
 }
 
 /// The production consumer: a transaction queue drained into engine state.
@@ -96,14 +161,18 @@ where
     Unsupported,
 }
 
-/// Failure to drain the transaction queue.
+/// Failure to drain the transaction stream into a balance stream.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum ConsumeError<Q, S>
+pub enum ConsumeError<Q, S, T>
 where
     Q: Queue<Transaction>,
     S: State,
+    T: Transactions,
 {
+    /// Appending a transaction batch to the queue failed.
+    #[error("appending a transaction batch failed: {0}")]
+    Append(Q::AppendError),
     /// Applying a transaction to the engine state failed.
     #[error(transparent)]
     Apply(#[from] ApplyError<S>),
@@ -116,6 +185,9 @@ where
     /// The batch length no longer fits the offset type.
     #[error("the batch length no longer fits the offset type: {0}")]
     OffsetWiden(#[from] core::num::TryFromIntError),
+    /// Reading the transaction stream failed.
+    #[error("reading the transaction stream failed: {0}")]
+    Stream(T::Error),
 }
 
 impl<Q, S> Engine<Q, S>
@@ -387,17 +459,40 @@ where
     }
 }
 
-impl<Q, S> Consumer for Engine<Q, S>
+impl<Q, S, T> Consumer<T> for Engine<Q, S>
 where
     Q: Queue<Transaction> + core::fmt::Debug,
     S: State + core::fmt::Debug,
+    T: Transactions + core::fmt::Debug,
 {
-    type ConsumeError = ConsumeError<Q, S>;
+    type Balances = BalanceStream<S>;
+    type ConsumeError = ConsumeError<Q, S, T>;
 
     #[inline]
-    async fn consume(&self, cancel: &CancellationToken) -> Result<(), Self::ConsumeError> {
+    async fn consume(
+        self,
+        cancel: &CancellationToken,
+        transactions: &mut T,
+    ) -> Result<Self::Balances, Self::ConsumeError> {
+        while let Some(batch) = transactions
+            .next_batch(cancel)
+            .await
+            .map_err(ConsumeError::Stream)?
+        {
+            let _offset = self
+                .queue
+                .append(batch, cancel)
+                .await
+                .map_err(ConsumeError::Append)?;
+        }
+        let _offset = self
+            .queue
+            .append(&[Transaction::Eof], cancel)
+            .await
+            .map_err(ConsumeError::Append)?;
+
         let mut offset = Offset::from(0);
-        loop {
+        'apply: loop {
             let batch = self
                 .queue
                 .next_batch(offset, cancel)
@@ -405,7 +500,7 @@ where
                 .map_err(ConsumeError::NextBatch)?;
             for &transaction in batch {
                 if matches!(transaction, Transaction::Eof) {
-                    return Ok(());
+                    break 'apply;
                 }
                 self.apply(transaction, cancel).await?;
             }
@@ -416,50 +511,11 @@ where
                     .ok_or(ConsumeError::OffsetOverflow)?,
             );
         }
-    }
-}
 
-/// Dispatch between the production engine and the unit-test mock.
-#[non_exhaustive]
-#[derive(Debug)]
-pub enum Type<Q, S> {
-    /// The unit-test mock.
-    #[cfg(feature = "mocks")]
-    Mock(MockConsumer),
-    /// The production engine.
-    Real(Engine<Q, S>),
-}
-
-/// Failure to drain a dispatched consumer.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum DispatchError<Q, S>
-where
-    Q: Queue<Transaction>,
-    S: State,
-{
-    /// The unit-test mock failed.
-    #[cfg(feature = "mocks")]
-    #[error("mocked consumer failed: {0}")]
-    Mock(crate::mocks::MockConsumeError),
-    /// The production engine failed.
-    #[error(transparent)]
-    Real(ConsumeError<Q, S>),
-}
-
-impl<Q, S> Consumer for Type<Q, S>
-where
-    Q: Queue<Transaction> + core::fmt::Debug,
-    S: State + core::fmt::Debug,
-{
-    type ConsumeError = DispatchError<Q, S>;
-
-    #[inline]
-    async fn consume(&self, cancel: &CancellationToken) -> Result<(), Self::ConsumeError> {
-        match self {
-            #[cfg(feature = "mocks")]
-            Self::Mock(mock) => mock.consume(cancel).await.map_err(DispatchError::Mock),
-            Self::Real(engine) => engine.consume(cancel).await.map_err(DispatchError::Real),
-        }
+        Ok(BalanceStream {
+            state: self.state,
+            next: None,
+            slot: None,
+        })
     }
 }

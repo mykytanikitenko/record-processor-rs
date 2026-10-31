@@ -10,6 +10,11 @@ pub struct MockLoadError;
 #[error("mocked key-value store failure")]
 pub struct MockStoreError;
 
+/// Failure scripted into a mocked [`crate::kv::Kv::keys`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("mocked key-value keys failure")]
+pub struct MockKeysError;
+
 /// Failure scripted into a mocked [`crate::state::State::current_offset`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[error("mocked current offset failure")]
