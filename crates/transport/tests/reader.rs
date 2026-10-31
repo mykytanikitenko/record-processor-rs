@@ -8,7 +8,7 @@ mod tests {
     use compio::buf::{BufResult, IoBufMut};
     use compio::io::AsyncRead;
     use rust_decimal::Decimal;
-    use service::{Amount, ClientId, ConstructionError, Transaction, TransactionStream as _, TxId};
+    use service::{Amount, ClientId, ConstructionError, Transaction, TxId};
     use std::str::FromStr as _;
     use tokio_util::sync::CancellationToken;
     use transport::{Input, ReadError, Reader, RecordError};

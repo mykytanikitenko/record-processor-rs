@@ -8,7 +8,7 @@ use rudzio::runtime::futures::ThreadPool;
 mod tests {
     use compio::io::AsyncRead;
     use rust_decimal::Decimal;
-    use service::{Amount, ClientId, Transaction, TransactionStream as _, TxId};
+    use service::{Amount, ClientId, Transaction, TxId};
     use std::str::FromStr as _;
     use tokio_util::sync::CancellationToken;
     use transport::{Input, Reader};

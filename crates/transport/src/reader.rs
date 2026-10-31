@@ -4,7 +4,7 @@
 use compio::buf::{BufResult, IntoInner as _, IoBufMut as _};
 use compio::io::{AsyncRead, AsyncReadAt as _, AsyncReadExt as _};
 use rust_decimal::Decimal;
-use service::{Amount, ClientId, ConstructionError, Transaction, TransactionStream, TxId};
+use service::{Amount, ClientId, ConstructionError, Transaction, TxId};
 use std::str::FromStr as _;
 use tokio_util::sync::CancellationToken;
 
@@ -198,17 +198,21 @@ where
     }
 }
 
-impl<S> TransactionStream for Reader<S>
+impl<S> Reader<S>
 where
     S: AsyncRead,
 {
-    type Error = ReadError;
-
+    /// Return the next transaction from the source, or `None` at end-of-input.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError`] when the stream is cancelled, the byte source
+    /// fails, or a CSV record cannot be mapped onto a transaction.
     #[inline]
-    async fn next(
+    pub async fn next(
         &mut self,
         cancel: &CancellationToken,
-    ) -> Result<Option<Transaction>, Self::Error> {
+    ) -> Result<Option<Transaction>, ReadError> {
         if cancel.is_cancelled() {
             return Err(ReadError::Cancelled);
         }
