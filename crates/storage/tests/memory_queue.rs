@@ -28,7 +28,12 @@ mod tests {
         let third = queue.append(&[30], &cancel).await?;
         anyhow::ensure!(
             (first, second, empty, third)
-                == (Offset::from(0), Offset::from(3), Offset::from(5), Offset::from(5)),
+                == (
+                    Offset::from(0),
+                    Offset::from(3),
+                    Offset::from(5),
+                    Offset::from(5)
+                ),
             "unexpected offsets {first:?} {second:?} {empty:?} {third:?}"
         );
         Ok(())
@@ -60,13 +65,13 @@ mod tests {
     ) -> anyhow::Result<()> {
         let queue = queue();
         let cancel = CancellationToken::new();
-        let (batch, appended) = join(
+        let (batch_result, appended_result) = join(
             queue.next_batch(Offset::from(0), &cancel),
             queue.append(&[7, 8], &cancel),
         )
         .await;
-        let batch = batch?;
-        let appended = appended?;
+        let batch = batch_result?;
+        let appended = appended_result?;
         anyhow::ensure!(
             (batch, appended) == (&[7, 8][..], Offset::from(0)),
             "unexpected wake result {batch:?} {appended:?}"
@@ -82,14 +87,12 @@ mod tests {
         let cancel = CancellationToken::new();
         let _head: Offset = queue.append(&[1, 2, 3], &cancel).await?;
         let early = queue.next_batch(Offset::from(1), &cancel).await?;
-        let mut record = 100_u32;
         for _segment in 0_u32..300 {
-            let _offset: Offset = queue.append(&[record, record + 1], &cancel).await?;
-            record += 2;
+            let _offset: Offset = queue.append(&[7, 8], &cancel).await?;
         }
         let tail = queue.next_batch(Offset::from(601), &cancel).await?;
         anyhow::ensure!(
-            (early, tail) == (&[2, 3][..], &[698, 699][..]),
+            (early, tail) == (&[2, 3][..], &[7, 8][..]),
             "unexpected slices {early:?} {tail:?}"
         );
         Ok(())

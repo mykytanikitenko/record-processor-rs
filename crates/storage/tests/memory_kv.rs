@@ -51,7 +51,10 @@ mod tests {
         kv.store(1, 10, &cancel).await?;
         kv.store(1, 11, &cancel).await?;
         let loaded = kv.load(1, &cancel).await;
-        anyhow::ensure!(loaded == Ok(Some(11)), "expected Ok(Some(11)), got {loaded:?}");
+        anyhow::ensure!(
+            loaded == Ok(Some(11)),
+            "expected Ok(Some(11)), got {loaded:?}"
+        );
         Ok(())
     }
 

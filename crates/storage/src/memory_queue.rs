@@ -22,75 +22,40 @@ use crate::queue::Queue;
 /// directory addresses `2^LEVELS - 1` segments in total.
 const LEVELS: usize = 32;
 
-/// One appended batch and the offset of its first record.
-#[derive(Debug)]
-struct Segment<T, A>
-where
-    A: Allocator,
-{
-    /// The batch records, allocated at their exact length.
-    records: Vec<T, A>,
-    /// The offset of the first record.
-    start: Offset,
-}
-
-/// One directory level: a slot vector allocated once at its final length.
-type Level<T, A> = Vec<OnceLock<Segment<T, A>>, A>;
-
-/// The position of a segment inside the directory.
-#[derive(Clone, Copy, Debug)]
-struct Slot {
-    /// The directory level.
-    level: usize,
-    /// The index inside the level.
-    index: usize,
-}
-
-/// Failure to locate a segment slot in the directory.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+/// Failure to append a batch to the in-memory queue.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
-pub enum SlotError {
-    /// The segment number is beyond the directory capacity.
-    #[error("segment {segment} exceeds the queue directory capacity")]
-    Capacity {
-        /// The segment number that does not fit.
+pub enum AppendError {
+    /// The segment or directory level could not be allocated.
+    #[error("queue allocation failed: {0}")]
+    Alloc(#[from] TryReserveError),
+    /// The append was cancelled before it published the batch.
+    #[error("append cancelled")]
+    Cancelled,
+    /// The next segment slot was already filled.
+    #[error("segment {segment} was already published")]
+    Occupied {
+        /// The occupied segment number.
         segment: u64,
     },
+    /// The record or segment count overflowed.
+    #[error("queue offset overflowed")]
+    Overflow,
+    /// The next segment does not map to a directory slot.
+    #[error(transparent)]
+    Slot(#[from] SlotError),
 }
 
-impl TryFrom<u64> for Slot {
-    type Error = SlotError;
-
-    #[inline]
-    fn try_from(segment: u64) -> Result<Self, Self::Error> {
-        let capacity = SlotError::Capacity { segment };
-        let position = segment.checked_add(1).ok_or(capacity)?;
-        let level = position.ilog2();
-        let first = 1_u64.checked_shl(level).ok_or(capacity)?;
-        let index = position.checked_sub(first).ok_or(capacity)?;
-        let level = usize::try_from(level).map_err(|_overflow| capacity)?;
-        let index = usize::try_from(index).map_err(|_overflow| capacity)?;
-        if level >= LEVELS {
-            return Err(capacity);
-        }
-        Ok(Self { level, index })
-    }
-}
-
-/// Construction input for [`MemoryQueue`].
-#[derive(Clone, Copy, Debug)]
-pub struct Parts<A> {
-    /// The allocator every segment and directory level is allocated in.
-    pub alloc: A,
-}
-
-/// Bookkeeping serialised across appends.
-#[derive(Debug)]
-struct Tail {
-    /// The number of published segments.
-    segments: u64,
-    /// The offset one past the last appended record.
-    next: u64,
+/// Failure to find the segment holding an offset.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum FindError {
+    /// The search bounds overflowed.
+    #[error("segment search overflowed")]
+    Overflow,
+    /// A published segment could not be read.
+    #[error(transparent)]
+    Segment(#[from] SegmentError),
 }
 
 /// The in-memory queue backing, allocating in the caller's `A` allocator.
@@ -111,44 +76,39 @@ where
     tail: async_lock::Mutex<Tail>,
 }
 
-impl<T, A> From<Parts<A>> for MemoryQueue<T, A>
-where
-    A: Allocator,
-{
-    #[inline]
-    fn from(parts: Parts<A>) -> Self {
-        Self {
-            alloc: parts.alloc,
-            appended: Event::new(),
-            levels: [const { OnceLock::new() }; LEVELS],
-            published: AtomicU64::new(0),
-            tail: async_lock::Mutex::new(Tail {
-                segments: 0,
-                next: 0,
-            }),
-        }
-    }
-}
-
-/// Failure to look up a published segment.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[non_exhaustive]
-pub enum SegmentError {
-    /// The segment number does not map to a directory slot.
-    #[error(transparent)]
-    Slot(#[from] SlotError),
-    /// The segment is counted as published but its slot is empty.
-    #[error("segment {segment} is counted as published but is missing")]
-    Missing {
-        /// The missing segment number.
-        segment: u64,
-    },
-}
-
 impl<T, A> MemoryQueue<T, A>
 where
     A: Allocator,
 {
+    /// Return the records from `since` to the end of its segment, or `None`
+    /// when `since` is at or past the published tail.
+    fn find(&self, since: Offset, published: u64) -> Result<Option<&[T]>, FindError> {
+        let mut low = 0_u64;
+        let mut high = published;
+        while low < high {
+            let span = high.checked_sub(low).ok_or(FindError::Overflow)?;
+            let middle = low.checked_add(span >> 1).ok_or(FindError::Overflow)?;
+            let segment = self.segment(middle)?;
+            if segment.start <= since {
+                low = middle.checked_add(1).ok_or(FindError::Overflow)?;
+            } else {
+                high = middle;
+            }
+        }
+        let Some(last) = low.checked_sub(1) else {
+            return Ok(None);
+        };
+        let segment = self.segment(last)?;
+        let skip_u64 = since
+            .checked_sub(*segment.start)
+            .ok_or(FindError::Overflow)?;
+        let skip = usize::try_from(skip_u64).map_err(|_overflow| FindError::Overflow)?;
+        Ok(segment
+            .records
+            .get(skip..)
+            .filter(|records| !records.is_empty()))
+    }
+
     /// Return the published segment numbered `segment`.
     fn segment(&self, segment: u64) -> Result<&Segment<T, A>, SegmentError> {
         let missing = SegmentError::Missing { segment };
@@ -162,87 +122,10 @@ where
     }
 }
 
-/// Failure to find the segment holding an offset.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[non_exhaustive]
-pub enum FindError {
-    /// A published segment could not be read.
-    #[error(transparent)]
-    Segment(#[from] SegmentError),
-    /// The search bounds overflowed.
-    #[error("segment search overflowed")]
-    Overflow,
-}
-
-impl<T, A> MemoryQueue<T, A>
-where
-    A: Allocator,
-{
-    /// Return the records from `since` to the end of its segment, or `None`
-    /// when `since` is at or past the published tail.
-    fn find(&self, since: Offset, published: u64) -> Result<Option<&[T]>, FindError> {
-        let mut low = 0_u64;
-        let mut high = published;
-        while low < high {
-            let span = high.checked_sub(low).ok_or(FindError::Overflow)?;
-            let middle = low.checked_add(span / 2).ok_or(FindError::Overflow)?;
-            let segment = self.segment(middle)?;
-            if segment.start <= since {
-                low = middle.checked_add(1).ok_or(FindError::Overflow)?;
-            } else {
-                high = middle;
-            }
-        }
-        let Some(last) = low.checked_sub(1) else {
-            return Ok(None);
-        };
-        let segment = self.segment(last)?;
-        let skip = since.checked_sub(*segment.start).ok_or(FindError::Overflow)?;
-        let skip = usize::try_from(skip).map_err(|_overflow| FindError::Overflow)?;
-        Ok(segment.records.get(skip..).filter(|records| !records.is_empty()))
-    }
-}
-
-/// Failure to append a batch to the in-memory queue.
-#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
-#[non_exhaustive]
-pub enum AppendError {
-    /// The append was cancelled before it published the batch.
-    #[error("append cancelled")]
-    Cancelled,
-    /// The segment or directory level could not be allocated.
-    #[error("queue allocation failed: {0}")]
-    Alloc(#[from] TryReserveError),
-    /// The record or segment count overflowed.
-    #[error("queue offset overflowed")]
-    Overflow,
-    /// The next segment does not map to a directory slot.
-    #[error(transparent)]
-    Slot(#[from] SlotError),
-    /// The next segment slot was already filled.
-    #[error("segment {segment} was already published")]
-    Occupied {
-        /// The occupied segment number.
-        segment: u64,
-    },
-}
-
-/// Failure to read the next batch from the in-memory queue.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[non_exhaustive]
-pub enum NextBatchError {
-    /// The wait for records was cancelled.
-    #[error("next batch cancelled")]
-    Cancelled,
-    /// The published segments could not be searched.
-    #[error(transparent)]
-    Find(#[from] FindError),
-}
-
 impl<T, A> MemoryQueue<T, A>
 where
     T: Copy,
-    A: Allocator + Clone,
+    A: Allocator + Copy,
 {
     /// Publish `batch` as the next segment under the append lock.
     async fn publish(&self, batch: &[T]) -> Result<Offset, AppendError> {
@@ -256,18 +139,22 @@ where
         let number = tail.segments;
         let segments = number.checked_add(1).ok_or(AppendError::Overflow)?;
         let slot = Slot::try_from(number)?;
-        let occupied = AppendError::Occupied { segment: number };
-        let level = self.levels.get(slot.level).ok_or(occupied.clone())?;
+        let level = self
+            .levels
+            .get(slot.level)
+            .ok_or(AppendError::Occupied { segment: number })?;
         if level.get().is_none() {
             let width = 1_usize
                 .checked_shl(u32::try_from(slot.level).map_err(|_overflow| AppendError::Overflow)?)
                 .ok_or(AppendError::Overflow)?;
-            let mut slots = Vec::new_in(self.alloc.clone());
+            let mut slots = Vec::new_in(self.alloc);
             slots.try_reserve_exact(width)?;
             slots.resize_with(width, OnceLock::new);
-            level.set(slots).map_err(|_level| occupied.clone())?;
+            level
+                .set(slots)
+                .map_err(|_level| AppendError::Occupied { segment: number })?;
         }
-        let mut records = Vec::new_in(self.alloc.clone());
+        let mut records = Vec::new_in(self.alloc);
         records.try_reserve_exact(batch.len())?;
         records.extend_from_slice(batch);
         let segment = Segment {
@@ -277,11 +164,12 @@ where
         level
             .get()
             .and_then(|slots| slots.get(slot.index))
-            .ok_or(occupied.clone())?
+            .ok_or(AppendError::Occupied { segment: number })?
             .set(segment)
-            .map_err(|_segment| occupied)?;
+            .map_err(|_segment| AppendError::Occupied { segment: number })?;
         tail.segments = segments;
         tail.next = next;
+        drop(tail);
         self.published.store(segments, Ordering::Release);
         let _woken: usize = self.appended.notify(usize::MAX);
         Ok(Offset::from(start))
@@ -300,10 +188,48 @@ where
     }
 }
 
+impl<T, A> From<Parts<A>> for MemoryQueue<T, A>
+where
+    A: Allocator,
+{
+    #[inline]
+    fn from(parts: Parts<A>) -> Self {
+        Self {
+            alloc: parts.alloc,
+            appended: Event::new(),
+            levels: [const { OnceLock::new() }; LEVELS],
+            published: AtomicU64::new(0),
+            tail: async_lock::Mutex::new(Tail {
+                next: 0,
+                segments: 0,
+            }),
+        }
+    }
+}
+
+/// Failure to read the next batch from the in-memory queue.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum NextBatchError {
+    /// The wait for records was cancelled.
+    #[error("next batch cancelled")]
+    Cancelled,
+    /// The published segments could not be searched.
+    #[error(transparent)]
+    Find(#[from] FindError),
+}
+
+/// Construction input for [`MemoryQueue`].
+#[derive(Clone, Copy, Debug)]
+pub struct Parts<A> {
+    /// The allocator every segment and directory level is allocated in.
+    pub alloc: A,
+}
+
 impl<T, A> Queue<T> for MemoryQueue<T, A>
 where
     T: Copy,
-    A: Allocator + Clone,
+    A: Allocator + Copy,
 {
     type AppendError = AppendError;
     type NextBatchError = NextBatchError;
@@ -334,4 +260,83 @@ where
             .await
             .ok_or(NextBatchError::Cancelled)?
     }
+}
+
+/// One appended batch and the offset of its first record.
+#[derive(Debug)]
+struct Segment<T, A>
+where
+    A: Allocator,
+{
+    /// The batch records, allocated at their exact length.
+    records: Vec<T, A>,
+    /// The offset of the first record.
+    start: Offset,
+}
+
+/// Failure to look up a published segment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum SegmentError {
+    /// The segment is counted as published but its slot is empty.
+    #[error("segment {segment} is counted as published but is missing")]
+    Missing {
+        /// The missing segment number.
+        segment: u64,
+    },
+    /// The segment number does not map to a directory slot.
+    #[error(transparent)]
+    Slot(#[from] SlotError),
+}
+
+/// The position of a segment inside the directory.
+#[derive(Clone, Copy, Debug)]
+struct Slot {
+    /// The index inside the level.
+    index: usize,
+    /// The directory level.
+    level: usize,
+}
+
+impl TryFrom<u64> for Slot {
+    type Error = SlotError;
+
+    #[inline]
+    fn try_from(segment: u64) -> Result<Self, Self::Error> {
+        let capacity = SlotError::Capacity { segment };
+        let position = segment.checked_add(1).ok_or(capacity)?;
+        let level_bits = position.ilog2();
+        let first = 1_u64.checked_shl(level_bits).ok_or(capacity)?;
+        let index_u64 = position.checked_sub(first).ok_or(capacity)?;
+        let level = usize::try_from(level_bits).map_err(|_overflow| capacity)?;
+        let index = usize::try_from(index_u64).map_err(|_overflow| capacity)?;
+        if level >= LEVELS {
+            return Err(capacity);
+        }
+        Ok(Self { index, level })
+    }
+}
+
+/// Failure to locate a segment slot in the directory.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum SlotError {
+    /// The segment number is beyond the directory capacity.
+    #[error("segment {segment} exceeds the queue directory capacity")]
+    Capacity {
+        /// The segment number that does not fit.
+        segment: u64,
+    },
+}
+
+/// One directory level: a slot vector allocated once at its final length.
+type Level<T, A> = Vec<OnceLock<Segment<T, A>>, A>;
+
+/// Bookkeeping serialised across appends.
+#[derive(Debug)]
+struct Tail {
+    /// The offset one past the last appended record.
+    next: u64,
+    /// The number of published segments.
+    segments: u64,
 }
