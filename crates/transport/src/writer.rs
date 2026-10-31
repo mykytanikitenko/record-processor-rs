@@ -116,6 +116,26 @@ impl<S> Writer<S>
 where
     S: AsyncWrite,
 {
+    /// Write the CSV header exactly once, flushing so it reaches the sink even
+    /// when no balance row follows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WriteError::Cancelled`] when the token fires or
+    /// [`WriteError::Io`] when the sink fails.
+    #[inline]
+    pub async fn write_header(&mut self, cancel: &CancellationToken) -> Result<(), WriteError> {
+        if cancel.is_cancelled() {
+            return Err(WriteError::Cancelled);
+        }
+        if !self.wrote_header {
+            self.sink.write_all(HEADER).await.0?;
+            self.wrote_header = true;
+        }
+        self.sink.flush().await?;
+        Ok(())
+    }
+
     /// Write the header (once) followed by every balance as a CSV row.
     ///
     /// # Errors
@@ -129,13 +149,7 @@ where
         balances: &[AccountBalance],
         cancel: &CancellationToken,
     ) -> Result<(), WriteError> {
-        if cancel.is_cancelled() {
-            return Err(WriteError::Cancelled);
-        }
-        if !self.wrote_header {
-            self.sink.write_all(HEADER).await.0?;
-            self.wrote_header = true;
-        }
+        self.write_header(cancel).await?;
         for balance in balances {
             if cancel.is_cancelled() {
                 return Err(WriteError::Cancelled);
