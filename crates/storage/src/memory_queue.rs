@@ -6,6 +6,7 @@
 //! final length, so a published record never moves. That stability is what
 //! lets [`Queue::next_batch`] hand out slices borrowing the queue itself.
 
+use core::cell::RefCell;
 use core::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
@@ -70,10 +71,10 @@ where
     appended: Event,
     /// The directory of segment levels.
     levels: [OnceLock<Level<T, A>>; LEVELS],
-    /// The number of published segments, read without the append lock.
+    /// The number of published segments, read without the append borrow.
     published: AtomicU64,
     /// The append bookkeeping, held across a whole append.
-    tail: async_lock::Mutex<Tail>,
+    tail: RefCell<Tail>,
 }
 
 impl<T, A> MemoryQueue<T, A>
@@ -127,9 +128,9 @@ where
     T: Copy,
     A: Allocator + Copy,
 {
-    /// Publish `batch` as the next segment under the append lock.
+    /// Publish `batch` as the next segment under the append borrow.
     async fn publish(&self, batch: &[T]) -> Result<Offset, AppendError> {
-        let mut tail = self.tail.lock().await;
+        let mut tail = self.tail.borrow_mut();
         let start = tail.next;
         if batch.is_empty() {
             return Ok(Offset::from(start));
@@ -199,7 +200,7 @@ where
             appended: Event::new(),
             levels: [const { OnceLock::new() }; LEVELS],
             published: AtomicU64::new(0),
-            tail: async_lock::Mutex::new(Tail {
+            tail: RefCell::new(Tail {
                 next: 0,
                 segments: 0,
             }),
@@ -332,7 +333,7 @@ pub enum SlotError {
 /// One directory level: a slot vector allocated once at its final length.
 type Level<T, A> = Vec<OnceLock<Segment<T, A>>, A>;
 
-/// Bookkeeping serialised across appends.
+/// Bookkeeping for the append tail, borrowed for each append.
 #[derive(Debug)]
 struct Tail {
     /// The offset one past the last appended record.

@@ -42,9 +42,6 @@ allocator-api2 = { version = "=0.2.21", default-features = false, features = [
   "std",
 ] }
 anyhow = { version = "=1.0.104", default-features = false, features = ["std"] }
-async-lock = { version = "=3.4.2", default-features = false, features = [
-  "std",
-] }
 cli = { path = "crates/cli", default-features = false, features = [] }
 compio = { version = "=0.19.2", default-features = false, features = [
   "runtime",

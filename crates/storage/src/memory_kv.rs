@@ -1,5 +1,6 @@
 //! The in-memory key-value backing.
 
+use core::cell::RefCell;
 use core::hash::{BuildHasher, Hash};
 
 use allocator_api2::alloc::Allocator;
@@ -32,8 +33,8 @@ pub struct MemoryKv<K, V, S, A>
 where
     A: Allocator,
 {
-    /// The table, locked for the duration of each operation.
-    table: async_lock::Mutex<HashMap<K, V, S, A>>,
+    /// The table, borrowed for the duration of each operation.
+    table: RefCell<HashMap<K, V, S, A>>,
 }
 
 impl<K, V, S, A> MemoryKv<K, V, S, A>
@@ -43,17 +44,16 @@ where
     S: BuildHasher,
     A: Allocator,
 {
-    /// Read the value for `key` under the table lock.
+    /// Read the value for `key` under the table borrow.
     async fn read(&self, key: K) -> Option<V> {
-        self.table.lock().await.get(&key).copied()
+        self.table.borrow().get(&key).copied()
     }
 
-    /// Write `value` for `key` under the table lock.
+    /// Write `value` for `key` under the table borrow.
     async fn write(&self, key: K, value: V) -> Result<(), StoreError> {
-        let mut table = self.table.lock().await;
+        let mut table = self.table.borrow_mut();
         table.try_reserve(1)?;
         let _previous: Option<V> = table.insert(key, value);
-        drop(table);
         Ok(())
     }
 }
@@ -68,8 +68,7 @@ where
     /// Return the smallest stored key strictly greater than `after`, if any.
     async fn next_key_inner(&self, after: Option<K>) -> Option<K> {
         self.table
-            .lock()
-            .await
+            .borrow()
             .keys()
             .filter(|key| after.as_ref().is_none_or(|after_key| *key > after_key))
             .min()
@@ -84,7 +83,7 @@ where
     #[inline]
     fn from(parts: Parts<S, A>) -> Self {
         Self {
-            table: async_lock::Mutex::new(HashMap::with_hasher_in(parts.hasher, parts.alloc)),
+            table: RefCell::new(HashMap::with_hasher_in(parts.hasher, parts.alloc)),
         }
     }
 }
