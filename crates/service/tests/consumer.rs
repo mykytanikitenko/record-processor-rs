@@ -41,7 +41,7 @@ mod tests {
         type Error = Infallible;
 
         async fn next_batch<'stream>(
-            &'stream self,
+            &'stream mut self,
             _cancel: &CancellationToken,
         ) -> Result<Option<&'stream [Transaction]>, Self::Error> {
             if self.yielded.replace(true) {
@@ -65,7 +65,7 @@ mod tests {
         type Error = Cancelled;
 
         async fn next_batch<'stream>(
-            &'stream self,
+            &'stream mut self,
             cancel: &CancellationToken,
         ) -> Result<Option<&'stream [Transaction]>, Self::Error> {
             if cancel.is_cancelled() {
