@@ -30,6 +30,7 @@ set -a sources no-static-lifetime tmp/no-static-lifetime.ndjson
 set -a sources no-tokio-runtime tmp/no-tokio-runtime.ndjson
 set -a sources no-manual-fmt tmp/no-manual-fmt.ndjson
 set -a sources no-std-io tmp/no-std-io.ndjson
+set -a sources no-std-fs tmp/no-std-fs.ndjson
 set -a sources no-implicit-alloc tmp/no-implicit-alloc.ndjson
 set -a sources no-materialize tmp/no-materialize.ndjson
 set -a sources clippy tmp/clippy.json

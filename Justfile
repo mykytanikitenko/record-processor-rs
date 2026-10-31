@@ -1,6 +1,6 @@
 # record-processor — Task Runner
 # The core recipes (build, test, lint, fmt, clean) plus one per Rust sub-lint
-# (lint-no-manual-fmt, lint-no-std-io, lint-no-implicit-alloc,
+# (lint-no-manual-fmt, lint-no-std-io, lint-no-std-fs, lint-no-implicit-alloc,
 # lint-no-materialize, lint-no-tokio-runtime). Each is a thin wrapper over
 # scripts/<name>.fish, which auto-enters the nix dev shell when run outside of
 # one.
@@ -32,6 +32,10 @@ lint-no-manual-fmt:
 # Run the no-std-io sub-lint in isolation.
 lint-no-std-io:
     @fish scripts/lint/no-std-io.fish
+
+# Run the no-std-fs sub-lint in isolation.
+lint-no-std-fs:
+    @fish scripts/lint/no-std-fs.fish
 
 # Run the no-implicit-alloc sub-lint in isolation.
 lint-no-implicit-alloc:

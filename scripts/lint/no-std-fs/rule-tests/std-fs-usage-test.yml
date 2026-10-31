@@ -1,0 +1,17 @@
+id: std-fs-usage
+valid:
+  - "let x: usize = 1;"
+  - "use std::collections::HashMap;"
+  - "use std::path::Path;"
+  - "let _: crate::fs::Thing = todo!();"
+  - "let _ = some_fs::read();"
+  - "let _ = compio::fs::write(&p, b);"
+  - "let _ = compio::fs::read(&p);"
+  - "let _f: compio::fs::File = todo!();"
+invalid:
+  - "use std::fs;"
+  - "use std::fs::File;"
+  - "use std::fs::{self, read};"
+  - "let _ = std::fs::read_to_string(p);"
+  - "let _ = std::fs::write(p, b);"
+  - "let f: std::fs::File = todo!();"
