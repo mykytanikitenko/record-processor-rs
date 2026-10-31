@@ -1,5 +1,5 @@
 description = "A withdrawal targets a client with no prior record."
 derivation = "client 1 has no record, so available is 0.0 and the withdrawal fails. Whether the resulting zero-balance client appears in the output is undecided."
-outcome = "pending-decision"
+outcome = "success"
 decision = "failed-withdrawal-new-client"
 question = "When a withdrawal targets a client with no prior record (and so has zero available funds), should that client appear in the output as a zero-balance row, or be omitted entirely?"

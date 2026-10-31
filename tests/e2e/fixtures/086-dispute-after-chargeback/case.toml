@@ -1,5 +1,5 @@
 description = "A transaction is disputed again after its dispute was charged back."
 derivation = "deposit 10.0, dispute -> held 10.0, chargeback -> held 0.0, locked true. A second dispute of tx 1 has no spec-defined effect."
-outcome = "pending-decision"
+outcome = "success"
 decision = "dispute-after-chargeback"
 question = "After a chargeback finalizes a dispute and locks the account, can the same transaction be disputed again?"
