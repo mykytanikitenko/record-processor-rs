@@ -1,7 +1,7 @@
 //! Stdio serve pipeline: adapt the CSV reader into a [`Transactions`] slice
 //! stream and drive a [`Consumer`] toward a stdout [`Writer`].
 
-use allocator_api2::alloc::Global;
+use allocator_api2::alloc::Allocator;
 use allocator_api2::boxed::Box;
 use compio::io::AsyncRead;
 use service::stream::Balances;
@@ -26,20 +26,26 @@ static EOFFILL: [Transaction; BATCH] = [Transaction::Eof; BATCH];
 /// Each batch fills a reused, heap-allocated buffer whose slice is handed back
 /// borrowing the adapter.
 #[derive(Debug)]
-pub struct Transactions<S> {
+pub struct Transactions<S, A>
+where
+    A: Allocator + Default,
+{
     /// The reused batch buffer.
-    buffer: Box<[Transaction], Global>,
+    buffer: Box<[Transaction], A>,
     /// Whether the reader has reached end-of-input.
     exhausted: bool,
     /// The underlying transaction reader.
     reader: Reader<S>,
 }
 
-impl<S> From<Input<S>> for Transactions<S> {
+impl<S, A> From<Input<S>> for Transactions<S, A>
+where
+    A: Allocator + Default,
+{
     #[inline]
     fn from(input: Input<S>) -> Self {
         Self {
-            buffer: Box::<[Transaction], Global>::from(EOFFILL.as_slice()),
+            buffer: Box::<[Transaction], A>::from(EOFFILL.as_slice()),
             exhausted: false,
             reader: Reader::from(input),
         }
@@ -58,9 +64,10 @@ pub enum ReadBatchError {
     Read(#[from] ReadError),
 }
 
-impl<S> service::stream::Transactions for Transactions<S>
+impl<S, A> service::stream::Transactions for Transactions<S, A>
 where
     S: AsyncRead,
+    A: Allocator + Default,
 {
     type Error = ReadBatchError;
 
@@ -104,10 +111,11 @@ where
 /// Failure while serving the transaction stream to stdout.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum ServeError<C, S>
+pub enum ServeError<C, S, A>
 where
-    C: Consumer<Transactions<S>>,
+    C: Consumer<Transactions<S, A>>,
     S: AsyncRead,
+    A: Allocator + Default,
 {
     /// Reading the next balance batch failed.
     #[error("reading the balance stream failed: {0}")]
@@ -132,16 +140,17 @@ where
 /// [`ServeError::Stdout`] when opening standard output fails, and
 /// [`ServeError::Write`] when writing a balance batch fails.
 #[inline]
-pub async fn serve<C, S>(
+pub async fn serve<C, S, A>(
     consumer: C,
     input: Input<S>,
     cancel: &CancellationToken,
-) -> Result<(), ServeError<C, S>>
+) -> Result<(), ServeError<C, S, A>>
 where
-    C: Consumer<Transactions<S>>,
+    C: Consumer<Transactions<S, A>>,
     S: AsyncRead,
+    A: Allocator + Default,
 {
-    let mut transactions = Transactions::from(input);
+    let mut transactions = Transactions::<S, A>::from(input);
     let mut balances = consumer
         .consume(cancel, &mut transactions)
         .await
