@@ -8,10 +8,8 @@
 //! The suite owns a hand-rolled [`rudzio::context::Suite`] / [`rudzio::context::Test`]
 //! pair so the compiled binary path is resolved exactly once, in suite setup,
 //! and threaded to every test through the per-test context. The suite runs on
-//! rudzio's `futures` runtime because the workspace's `compio` (0.19.2) is a
-//! different crate version from the `compio` runtime rudzio's `runtime-compio`
-//! feature pulls in (0.11); each process call therefore starts its own
-//! short-lived workspace-compio runtime inside [`crate::runner`].
+//! the `compio` runtime, the same runtime the process helpers in
+//! [`crate::runner`] use.
 //!
 //! Signal cancellation (SIGINT/SIGTERM while the binary waits on standard
 //! input) is NOT wired yet. `cli::run` starts the compio runtime and blocks on
@@ -215,7 +213,7 @@ fn assert_failure(name: &str, out: &ProcessOutput) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[rudzio::suite([(runtime = rudzio::runtime::futures::ThreadPool::new, suite = CliSuite, test = CliTest)])]
+#[rudzio::suite([(runtime = rudzio::runtime::compio::Runtime::new, suite = CliSuite, test = CliTest)])]
 mod tests {
     use std::path::Path;
 
@@ -225,12 +223,15 @@ mod tests {
     use crate::runner::{run_binary, run_binary_stdin};
 
     #[rudzio::test]
-    fn file_argument_and_stdin_emit_identical_output(ctx: &CliTest) -> anyhow::Result<()> {
-        let case = super::load_case("001-spec-example")?;
-        let input = std::fs::read_to_string(&case.input)
+    async fn file_argument_and_stdin_emit_identical_output(ctx: &CliTest) -> anyhow::Result<()> {
+        let case = super::load_case("001-spec-example").await?;
+        let input_bytes = compio::fs::read(&case.input)
+            .await
             .with_context(|| format!("failed to read {}", case.input.display()))?;
+        let input = String::from_utf8(input_bytes)
+            .with_context(|| format!("input {} is not UTF-8", case.input.display()))?;
 
-        let from_file = run_binary(ctx.bin, &case.input)?;
+        let from_file = run_binary(ctx.bin, &case.input).await?;
         assert_success("file argument", &from_file)?;
         anyhow::ensure!(
             from_file.stdout == SPEC_EXAMPLE_STDOUT,
@@ -238,7 +239,7 @@ mod tests {
             from_file.stdout
         );
 
-        let from_stdin = run_binary_stdin(ctx.bin, input)?;
+        let from_stdin = run_binary_stdin(ctx.bin, input).await?;
         assert_success("stdin", &from_stdin)?;
         anyhow::ensure!(
             from_stdin.stdout == SPEC_EXAMPLE_STDOUT,
@@ -249,11 +250,12 @@ mod tests {
     }
 
     #[rudzio::test]
-    fn missing_file_fails_cleanly(ctx: &CliTest) -> anyhow::Result<()> {
+    async fn missing_file_fails_cleanly(ctx: &CliTest) -> anyhow::Result<()> {
         let out = run_binary(
             ctx.bin,
             Path::new("/nonexistent/record-processor-input.csv"),
-        )?;
+        )
+        .await?;
         assert_failure("missing file", &out)?;
         anyhow::ensure!(
             out.stderr.starts_with("Error:"),
@@ -264,9 +266,9 @@ mod tests {
     }
 
     #[rudzio::test]
-    fn malformed_row_fails_cleanly(ctx: &CliTest) -> anyhow::Result<()> {
-        let case = super::load_case("061-malformed-unknown-type")?;
-        let out = run_binary(ctx.bin, &case.input)?;
+    async fn malformed_row_fails_cleanly(ctx: &CliTest) -> anyhow::Result<()> {
+        let case = super::load_case("061-malformed-unknown-type").await?;
+        let out = run_binary(ctx.bin, &case.input).await?;
         assert_failure("malformed row", &out)?;
         anyhow::ensure!(
             out.stderr.starts_with("Error:"),
@@ -277,9 +279,9 @@ mod tests {
     }
 
     #[rudzio::test]
-    fn header_only_input_emits_header_only(ctx: &CliTest) -> anyhow::Result<()> {
-        let case = super::load_case("060-header-only")?;
-        let out = run_binary(ctx.bin, &case.input)?;
+    async fn header_only_input_emits_header_only(ctx: &CliTest) -> anyhow::Result<()> {
+        let case = super::load_case("060-header-only").await?;
+        let out = run_binary(ctx.bin, &case.input).await?;
         assert_success("header-only", &out)?;
         anyhow::ensure!(
             out.stdout == HEADER_ONLY_STDOUT,
@@ -293,8 +295,8 @@ mod tests {
     /// an unknown option such as `--help` is handed to `File::open` as a path
     /// and fails with a not-found error. Argument validation is not wired yet.
     #[rudzio::test]
-    fn unknown_option_is_treated_as_a_path(ctx: &CliTest) -> anyhow::Result<()> {
-        let out = run_binary(ctx.bin, Path::new("--help"))?;
+    async fn unknown_option_is_treated_as_a_path(ctx: &CliTest) -> anyhow::Result<()> {
+        let out = run_binary(ctx.bin, Path::new("--help")).await?;
         assert_failure("unknown option", &out)?;
         Ok(())
     }

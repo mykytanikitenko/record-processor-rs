@@ -1,9 +1,9 @@
 //! In-memory queue tests against the real backing.
 
 use rudzio::common::context::Suite;
-use rudzio::runtime::futures::ThreadPool;
+use rudzio::runtime::compio::Runtime;
 
-#[rudzio::suite([(runtime = ThreadPool::new, suite = Suite, test = rudzio::common::context::Test)])]
+#[rudzio::suite([(runtime = Runtime::new, suite = Suite, test = rudzio::common::context::Test)])]
 mod tests {
     use allocator_api2::alloc::Global;
     use futures_util::future::join;

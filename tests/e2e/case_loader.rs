@@ -52,11 +52,14 @@ fn fixtures_root() -> PathBuf {
 /// Returns an error when `case.toml` is missing or malformed, when a required
 /// data file is missing, or when a pending-decision case lacks its decision id
 /// or question.
-pub(crate) fn load_case(name: &str) -> anyhow::Result<LoadedCase> {
+pub(crate) async fn load_case(name: &str) -> anyhow::Result<LoadedCase> {
     let dir = fixtures_root().join(name);
     let meta_path = dir.join("case.toml");
-    let meta_toml = std::fs::read_to_string(&meta_path)
+    let meta_bytes = compio::fs::read(&meta_path)
+        .await
         .with_context(|| format!("case `{name}` is missing case.toml"))?;
+    let meta_toml = String::from_utf8(meta_bytes)
+        .with_context(|| format!("case `{name}` has a non-UTF-8 case.toml"))?;
     let meta: CaseMeta = toml::from_str(&meta_toml)
         .with_context(|| format!("case `{name}` has malformed case.toml"))?;
 

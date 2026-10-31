@@ -139,7 +139,7 @@ pub(crate) fn compare_whole(
     Ok(())
 }
 
-#[rudzio::suite([(runtime = rudzio::runtime::futures::ThreadPool::new, suite = rudzio::common::context::Suite, test = rudzio::common::context::Test)])]
+#[rudzio::suite([(runtime = rudzio::runtime::compio::Runtime::new, suite = rudzio::common::context::Suite, test = rudzio::common::context::Test)])]
 mod tests {
     use super::{AccountRow, compare_whole};
     use rust_decimal::Decimal;

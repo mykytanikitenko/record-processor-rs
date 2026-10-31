@@ -1,9 +1,9 @@
 //! State unit tests against mocked key-value stores.
 
 use rudzio::common::context::Suite;
-use rudzio::runtime::futures::ThreadPool;
+use rudzio::runtime::compio::Runtime;
 
-#[rudzio::suite([(runtime = ThreadPool::new, suite = Suite, test = rudzio::common::context::Test)])]
+#[rudzio::suite([(runtime = Runtime::new, suite = Suite, test = rudzio::common::context::Test)])]
 mod tests {
     use mockall::predicate::eq;
     use record_processor_domain::client_id::ClientId;
