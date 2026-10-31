@@ -47,6 +47,7 @@ compio = { version = "=0.19.2", default-features = false, features = [
   "runtime",
   "fs",
   "io-compat",
+  "memmap2",
   "polling",
   "process",
   "signal",
