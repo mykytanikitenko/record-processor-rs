@@ -24,6 +24,7 @@ const CONTENT: &str = "type,client,tx,amount\n\
 
 /// Suite context: a temp input file written once in setup and removed in
 /// teardown.
+#[derive(Debug)]
 struct FileSuite<'suite_context, R>
 where
     R: Runtime<'suite_context> + Sync,
@@ -39,6 +40,7 @@ where
 }
 
 /// Per-test context: borrows the suite's temp-file path.
+#[derive(Debug)]
 struct FileTest<'test_context, R>
 where
     R: Runtime<'test_context> + Sync,
@@ -53,24 +55,6 @@ where
     rt: &'test_context R,
     /// Suite-shared task tracker, borrowed rather than cloned.
     tracker: &'test_context TaskTracker,
-}
-
-impl<'suite_context, R> std::fmt::Debug for FileSuite<'suite_context, R>
-where
-    R: Runtime<'suite_context> + Sync,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FileSuite").finish_non_exhaustive()
-    }
-}
-
-impl<'test_context, R> std::fmt::Debug for FileTest<'test_context, R>
-where
-    R: Runtime<'test_context> + Sync,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FileTest").finish_non_exhaustive()
-    }
 }
 
 impl<'suite_context, R> context::Suite<'suite_context, R> for FileSuite<'suite_context, R>
@@ -213,12 +197,11 @@ mod tests {
     }
 
     #[rudzio::test]
-    async fn file_larger_than_buffer_streams_across_refills(
-        ctx: &FileTest,
-    ) -> anyhow::Result<()> {
+    async fn file_larger_than_buffer_streams_across_refills(ctx: &FileTest) -> anyhow::Result<()> {
         let file = ctx.block_on(compio::fs::File::open(ctx.path))?;
-        let transactions =
-            ctx.block_on(read_all(Reader::<compio::fs::Stdin>::from(Input::from(file))))?;
+        let transactions = ctx.block_on(read_all(Reader::<compio::fs::Stdin>::from(
+            Input::from(file),
+        )))?;
         anyhow::ensure!(
             transactions
                 == [
