@@ -1,0 +1,20 @@
+id: std-fs-usage
+language: Rust
+severity: info
+message: "std::fs usage"
+rule:
+  any:
+    - kind: use_declaration
+      regex: 'std::fs'
+    - kind: scoped_identifier
+      regex: '^std::fs::[A-Za-z0-9_]+$'
+      not:
+        inside:
+          kind: use_declaration
+          stopBy: end
+    - kind: scoped_type_identifier
+      regex: '^std::fs::[A-Za-z0-9_]+$'
+      not:
+        inside:
+          kind: use_declaration
+          stopBy: end
