@@ -157,7 +157,7 @@ mod tests {
     async fn unknown_type_is_rejected(_ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\nmystery,1,1,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::UnknownType)),
+            matches!(error, ReadError::Record(RecordError::UnknownType { .. })),
             "expected unknown-type, got {error:?}"
         );
         Ok(())
@@ -167,7 +167,7 @@ mod tests {
     async fn literal_eof_is_rejected(_ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\neof,1,1,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::UnknownType)),
+            matches!(error, ReadError::Record(RecordError::UnknownType { .. })),
             "expected unknown-type for a literal `eof`, got {error:?}"
         );
         Ok(())
@@ -191,7 +191,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\ndeposit,1,1\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::MissingAmount)),
+            matches!(error, ReadError::Record(RecordError::MissingAmount { .. })),
             "expected missing-amount, got {error:?}"
         );
         Ok(())
@@ -248,7 +248,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\ndeposit,abc,1,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::Client(_))),
+            matches!(error, ReadError::Record(RecordError::Client { .. })),
             "expected invalid-client, got {error:?}"
         );
         Ok(())
@@ -260,7 +260,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\ndeposit,1,xyz,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::Tx(_))),
+            matches!(error, ReadError::Record(RecordError::Tx { .. })),
             "expected invalid-transaction, got {error:?}"
         );
         Ok(())
@@ -272,7 +272,7 @@ mod tests {
     ) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\ndeposit,65536,1,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::Client(_))),
+            matches!(error, ReadError::Record(RecordError::Client { .. })),
             "expected invalid-client, got {error:?}"
         );
         Ok(())
@@ -282,7 +282,7 @@ mod tests {
     async fn tx_over_u32_is_rejected(_ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
         let error = first_error(b"type,client,tx,amount\ndeposit,1,4294967296,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::Tx(_))),
+            matches!(error, ReadError::Record(RecordError::Tx { .. })),
             "expected invalid-transaction, got {error:?}"
         );
         Ok(())
@@ -292,9 +292,22 @@ mod tests {
     async fn wrong_header_is_rejected(_ctx: &rudzio::common::context::Test) -> anyhow::Result<()> {
         let error = first_error(b"foo,bar,baz,qux\ndeposit,1,1,1.0\n").await?;
         anyhow::ensure!(
-            matches!(error, ReadError::Record(RecordError::Header)),
+            matches!(error, ReadError::Record(RecordError::Header { .. })),
             "expected header error, got {error:?}"
         );
+        Ok(())
+    }
+
+    #[rudzio::test]
+    async fn missing_field_names_column_and_line(
+        _ctx: &rudzio::common::context::Test,
+    ) -> anyhow::Result<()> {
+        let error = first_error(b"type,client,tx,amount\ndeposit,1\n").await?;
+        let ReadError::Record(RecordError::MissingField { line, field }) = error else {
+            anyhow::bail!("expected missing-field error");
+        };
+        anyhow::ensure!(line == 2, "expected line 2, got {line}");
+        anyhow::ensure!(field == "tx", "expected missing `tx` column, got `{field}`");
         Ok(())
     }
 }

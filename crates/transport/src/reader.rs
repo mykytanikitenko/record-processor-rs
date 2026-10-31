@@ -11,11 +11,15 @@ use tokio_util::sync::CancellationToken;
 /// Maps the `amount` column of a `deposit` or `withdrawal` row onto an
 /// [`Amount`], rejecting a missing or empty value.
 macro_rules! require_amount {
-    ($amount_str:expr) => {{
+    ($amount_str:expr, $line:expr) => {{
         let raw = $amount_str
             .filter(|field| !field.is_empty())
-            .ok_or(RecordError::MissingAmount)?;
-        let decimal = Decimal::from_str(raw).map_err(RecordError::InvalidDecimal)?;
+            .ok_or(RecordError::MissingAmount { line: $line })?;
+        let decimal = Decimal::from_str(raw).map_err(|source| RecordError::InvalidDecimal {
+            line: $line,
+            raw: raw.into(),
+            source,
+        })?;
         Amount::try_from(decimal)?
     }};
 }
@@ -42,6 +46,9 @@ pub enum ReadError {
     /// Refilling the buffer from the byte source failed.
     #[error(transparent)]
     Fill(#[from] FillError),
+    /// The 1-based line counter overflowed `usize`.
+    #[error("transaction reader line count overflowed")]
+    LineOverflow,
     /// A CSV record could not be mapped onto a transaction.
     #[error(transparent)]
     Record(#[from] RecordError),
@@ -70,32 +77,75 @@ pub enum RecordError {
     #[error("invalid amount: {0}")]
     Amount(#[from] ConstructionError),
     /// The client column was not a valid `u16`.
-    #[error("invalid client id: {0}")]
-    Client(std::num::ParseIntError),
+    #[error("invalid client id `{raw}` at line {line}: {source}")]
+    Client {
+        /// The 1-based line number of the offending record.
+        line: usize,
+        /// The offending client column text.
+        raw: String,
+        /// The parse failure.
+        #[source]
+        source: std::num::ParseIntError,
+    },
     /// The header row was absent or did not match the contract.
-    #[error("CSV header must be exactly `type,client,tx,amount`")]
-    Header,
+    #[error("expected `type,client,tx,amount`, got `{found}`")]
+    Header {
+        /// The actual header line that failed to match.
+        found: String,
+    },
     /// The amount column was not a valid decimal.
-    #[error("invalid amount: {0}")]
-    InvalidDecimal(rust_decimal::Error),
+    #[error("invalid amount `{raw}` at line {line}: {source}")]
+    InvalidDecimal {
+        /// The 1-based line number of the offending record.
+        line: usize,
+        /// The offending amount column text.
+        raw: String,
+        /// The decimal parse failure.
+        #[source]
+        source: rust_decimal::Error,
+    },
     /// A `deposit` or `withdrawal` row carried no amount.
-    #[error("deposit or withdrawal is missing its amount")]
-    MissingAmount,
+    #[error("transaction row at line {line} is missing the `amount` column")]
+    MissingAmount {
+        /// The 1-based line number of the offending record.
+        line: usize,
+    },
     /// A transaction row was missing a required column.
-    #[error("transaction row is missing a required column")]
-    MissingField,
+    #[error("transaction row at line {line} is missing the `{field}` column")]
+    MissingField {
+        /// The 1-based line number of the offending record.
+        line: usize,
+        /// The name of the missing column.
+        field: String,
+    },
     /// A transaction row carried more than four columns.
-    #[error("transaction row has too many columns")]
-    TooManyFields,
+    #[error("transaction row at line {line} has too many columns")]
+    TooManyFields {
+        /// The 1-based line number of the offending record.
+        line: usize,
+    },
     /// The transaction column was not a valid `u32`.
-    #[error("invalid transaction id: {0}")]
-    Tx(std::num::ParseIntError),
+    #[error("invalid transaction id `{raw}` at line {line}: {source}")]
+    Tx {
+        /// The 1-based line number of the offending record.
+        line: usize,
+        /// The offending transaction column text.
+        raw: String,
+        /// The parse failure.
+        #[source]
+        source: std::num::ParseIntError,
+    },
     /// A `dispute`, `resolve`, or `chargeback` row carried an amount.
     #[error("dispute, resolve, or chargeback must not carry an amount")]
     UnexpectedAmount,
     /// The `type` column matched no known transaction kind.
-    #[error("unknown transaction type")]
-    UnknownType,
+    #[error("unknown transaction type `{value}` at line {line}")]
+    UnknownType {
+        /// The 1-based line number of the offending record.
+        line: usize,
+        /// The unrecognized `type` column text.
+        value: String,
+    },
     /// A line was not valid UTF-8.
     #[error("CSV record is not valid UTF-8")]
     Utf8(#[from] std::str::Utf8Error),
@@ -144,6 +194,8 @@ pub struct Reader<S> {
     eof_yielded: bool,
     /// Whether the header row has been consumed.
     header_seen: bool,
+    /// The 1-based line number of the next record to be parsed.
+    line: usize,
     /// The owned byte source the real reader consumes.
     source: Input<S>,
 }
@@ -156,6 +208,7 @@ impl<S> From<Input<S>> for Reader<S> {
             eof: false,
             eof_yielded: false,
             header_seen: false,
+            line: 0,
             source,
         }
     }
@@ -222,8 +275,14 @@ where
                     Some(prev) if self.buffer.get(prev) == Some(&b'\r') => prev,
                     _ => newline,
                 };
-                let record = parse_record(self.buffer.split_at(payload).0, &mut self.header_seen)
-                    .map_err(ReadError::Record)?;
+                self.line = self.line.checked_add(1).ok_or(ReadError::LineOverflow)?;
+                let line_number = self.line;
+                let record = parse_record(
+                    self.buffer.split_at(payload).0,
+                    &mut self.header_seen,
+                    line_number,
+                )
+                .map_err(ReadError::Record)?;
                 self.buffer.drain(..=newline).for_each(drop);
                 if let Some(transaction) = record {
                     return Ok(Some(transaction));
@@ -239,8 +298,10 @@ where
                     self.eof_yielded = true;
                     return Ok(Some(Transaction::Eof));
                 }
-                let record =
-                    parse_record(&self.buffer, &mut self.header_seen).map_err(ReadError::Record)?;
+                self.line = self.line.checked_add(1).ok_or(ReadError::LineOverflow)?;
+                let line_number = self.line;
+                let record = parse_record(&self.buffer, &mut self.header_seen, line_number)
+                    .map_err(ReadError::Record)?;
                 self.buffer.drain(..).for_each(drop);
                 if let Some(transaction) = record {
                     return Ok(Some(transaction));
@@ -257,43 +318,85 @@ where
 
 /// Parse one CSV line (already freed of its trailing `\r\n`) into a
 /// transaction, consuming the header row on first call.
-fn parse_record(line: &[u8], header_seen: &mut bool) -> Result<Option<Transaction>, RecordError> {
+///
+/// `line_number` is the 1-based line number of `line` in the input, attached
+/// to any [`RecordError`] the parse produces.
+fn parse_record(
+    line: &[u8],
+    header_seen: &mut bool,
+    line_number: usize,
+) -> Result<Option<Transaction>, RecordError> {
     let text = core::str::from_utf8(line)?;
-    let mut fields = text.split(',');
 
     if !*header_seen {
         *header_seen = true;
-        let kind = fields.next().ok_or(RecordError::Header)?.trim();
-        let client = fields.next().ok_or(RecordError::Header)?.trim();
-        let tx = fields.next().ok_or(RecordError::Header)?.trim();
-        let amount = fields.next().ok_or(RecordError::Header)?.trim();
-        if fields.next().is_some() {
-            return Err(RecordError::Header);
-        }
-        if kind == "type" && client == "client" && tx == "tx" && amount == "amount" {
+        let mut columns = text.split(',').map(str::trim);
+        let kind = columns.next();
+        let client = columns.next();
+        let tx = columns.next();
+        let amount = columns.next();
+        let extra = columns.next();
+        if kind == Some("type")
+            && client == Some("client")
+            && tx == Some("tx")
+            && amount == Some("amount")
+            && extra.is_none()
+        {
             return Ok(None);
         }
-        return Err(RecordError::Header);
+        return Err(RecordError::Header { found: text.into() });
     }
 
-    let kind = fields.next().ok_or(RecordError::MissingField)?.trim();
-    let client_str = fields.next().ok_or(RecordError::MissingField)?.trim();
-    let tx_str = fields.next().ok_or(RecordError::MissingField)?.trim();
+    let mut fields = text.split(',');
+    let kind = fields
+        .next()
+        .ok_or_else(|| RecordError::MissingField {
+            line: line_number,
+            field: "type".into(),
+        })?
+        .trim();
+    let client_str = fields
+        .next()
+        .ok_or_else(|| RecordError::MissingField {
+            line: line_number,
+            field: "client".into(),
+        })?
+        .trim();
+    let tx_str = fields
+        .next()
+        .ok_or_else(|| RecordError::MissingField {
+            line: line_number,
+            field: "tx".into(),
+        })?
+        .trim();
     let amount_str = fields.next().map(str::trim);
     if fields.next().is_some() {
-        return Err(RecordError::TooManyFields);
+        return Err(RecordError::TooManyFields { line: line_number });
     }
 
-    let client = ClientId::from(client_str.parse::<u16>().map_err(RecordError::Client)?);
-    let tx = TxId::from(tx_str.parse::<u32>().map_err(RecordError::Tx)?);
+    let client =
+        ClientId::from(
+            client_str
+                .parse::<u16>()
+                .map_err(|source| RecordError::Client {
+                    line: line_number,
+                    raw: client_str.into(),
+                    source,
+                })?,
+        );
+    let tx = TxId::from(tx_str.parse::<u32>().map_err(|source| RecordError::Tx {
+        line: line_number,
+        raw: tx_str.into(),
+        source,
+    })?);
 
     let transaction = match kind {
         "deposit" => {
-            let amount = require_amount!(amount_str);
+            let amount = require_amount!(amount_str, line_number);
             Transaction::Deposit { client, tx, amount }
         }
         "withdrawal" => {
-            let amount = require_amount!(amount_str);
+            let amount = require_amount!(amount_str, line_number);
             Transaction::Withdrawal { client, tx, amount }
         }
         "dispute" => {
@@ -308,7 +411,12 @@ fn parse_record(line: &[u8], header_seen: &mut bool) -> Result<Option<Transactio
             reject_amount!(amount_str);
             Transaction::Chargeback { client, tx }
         }
-        _ => return Err(RecordError::UnknownType),
+        unknown => {
+            return Err(RecordError::UnknownType {
+                line: line_number,
+                value: unknown.into(),
+            });
+        }
     };
 
     Ok(Some(transaction))
