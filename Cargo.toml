@@ -124,7 +124,6 @@ rust_2021_compatibility = { level = "deny", priority = -1 }
 rust_2024_compatibility = { level = "deny", priority = -1 }
 unused = { level = "deny", priority = -1 }
 
-unsafe_code = "deny"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rudzio_test)'] }
 
 # Allow-by-default lints elevated to deny
@@ -147,6 +146,7 @@ unused_results = "deny"
 # Intentionally allowed
 async_fn_in_trait = "allow"        # compio is thread-per-core; async trait methods return !Send futures
 single_use_lifetimes = "allow"
+unsafe_code = "allow"              # establishing the mmap file queue requires unsafe
 variant_size_differences = "allow"
 
 # Clippy lints
