@@ -12,6 +12,7 @@ repository.workspace = true
 autotests = false
 
 [dependencies]
+allocator-api2 = { workspace = true }
 compio = { workspace = true }
 rust_decimal = { workspace = true }
 service = { workspace = true }

@@ -1,49 +1,68 @@
 //! Stdio serve pipeline: adapt the CSV reader into a [`Transactions`] slice
 //! stream and drive a [`Consumer`] toward a stdout [`Writer`].
 
+use allocator_api2::alloc::Global;
+use allocator_api2::boxed::Box;
+use allocator_api2::vec::Vec;
 use compio::io::AsyncRead;
-use service::stream::{Balances, Transactions};
+use service::stream::Balances;
 use service::{Consumer, Transaction};
 use tokio_util::sync::CancellationToken;
 
 use crate::reader::{Input, ReadError, Reader};
 use crate::writer::{WriteError, Writer};
 
-/// The number of transactions buffered per [`StdioTransactions::next_batch`]
+/// The number of transactions buffered per [`Transactions::next_batch`]
 /// yield.
 const BATCH: usize = 1024;
 
-/// Adapts the CSV [`Reader`] into a [`Transactions`] slice stream.
+/// Adapts the CSV [`Reader`] into a [`service::stream::Transactions`] slice
+/// stream.
 ///
-/// Each batch fills a fixed, reused buffer whose slice is handed back
+/// Each batch fills a reused, heap-allocated buffer whose slice is handed back
 /// borrowing the adapter.
 #[derive(Debug)]
-pub struct StdioTransactions<S> {
-    /// The underlying transaction reader.
-    reader: Reader<S>,
+pub struct Transactions<S> {
     /// The reused batch buffer.
-    buffer: [Transaction; BATCH],
+    buffer: Box<[Transaction], Global>,
     /// Whether the reader has reached end-of-input.
     exhausted: bool,
+    /// The underlying transaction reader.
+    reader: Reader<S>,
 }
 
-impl<S> From<Input<S>> for StdioTransactions<S> {
+impl<S> From<Input<S>> for Transactions<S> {
     #[inline]
     fn from(input: Input<S>) -> Self {
+        let mut buffer = Vec::new_in(Global);
+        buffer.resize(BATCH, Transaction::Eof);
         Self {
-            reader: Reader::from(input),
-            buffer: [Transaction::Eof; BATCH],
+            buffer: buffer.into_boxed_slice(),
             exhausted: false,
+            reader: Reader::from(input),
         }
     }
 }
 
-impl<S> Transactions for StdioTransactions<S>
+/// Failure to read the next transaction batch from the CSV reader.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ReadBatchError {
+    /// The reused batch buffer was exhausted before the batch completed.
+    #[error("transaction batch buffer overflowed")]
+    BufferOverflow,
+    /// The underlying reader failed.
+    #[error(transparent)]
+    Read(#[from] ReadError),
+}
+
+impl<S> service::stream::Transactions for Transactions<S>
 where
     S: AsyncRead,
 {
-    type Error = ReadError;
+    type Error = ReadBatchError;
 
+    #[inline]
     async fn next_batch<'stream>(
         &'stream mut self,
         cancel: &CancellationToken,
@@ -59,23 +78,24 @@ where
                     self.exhausted = true;
                     break;
                 }
-                Some(transaction) => match self.buffer.get_mut(len) {
-                    Some(slot) => {
-                        *slot = transaction;
-                        len += 1;
-                    }
-                    None => break,
-                },
+                Some(transaction) => {
+                    let slot = self
+                        .buffer
+                        .get_mut(len)
+                        .ok_or(ReadBatchError::BufferOverflow)?;
+                    *slot = transaction;
+                    len = len.checked_add(1).ok_or(ReadBatchError::BufferOverflow)?;
+                }
             }
         }
 
         if len == 0 {
             return Ok(None);
         }
-        match self.buffer.get(..len) {
-            Some(batch) => Ok(Some(batch)),
-            None => Ok(None),
-        }
+        let Some(batch) = self.buffer.get(..len) else {
+            return Ok(None);
+        };
+        Ok(Some(batch))
     }
 }
 
@@ -84,15 +104,15 @@ where
 #[non_exhaustive]
 pub enum ServeError<C, S>
 where
-    C: Consumer<StdioTransactions<S>>,
+    C: Consumer<Transactions<S>>,
     S: AsyncRead,
 {
-    /// Draining the transaction stream into balances failed.
-    #[error("consuming the transaction stream failed: {0}")]
-    Consume(C::ConsumeError),
     /// Reading the next balance batch failed.
     #[error("reading the balance stream failed: {0}")]
     Balance(<C::Balances as Balances>::Error),
+    /// Draining the transaction stream into balances failed.
+    #[error("consuming the transaction stream failed: {0}")]
+    Consume(C::ConsumeError),
     /// Writing a balance batch to stdout failed.
     #[error("writing the balance stream failed: {0}")]
     Write(WriteError),
@@ -112,27 +132,20 @@ pub async fn serve<C, S>(
     cancel: &CancellationToken,
 ) -> Result<(), ServeError<C, S>>
 where
-    C: Consumer<StdioTransactions<S>>,
+    C: Consumer<Transactions<S>>,
     S: AsyncRead,
 {
-    let mut transactions = StdioTransactions::from(input);
+    let mut transactions = Transactions::from(input);
     let mut balances = consumer
         .consume(cancel, &mut transactions)
         .await
         .map_err(ServeError::Consume)?;
     let mut writer = Writer::from(compio::fs::stdout());
-    loop {
-        match balances
-            .next_batch(cancel)
+    while let Some(batch) = balances.next_batch(cancel).await.map_err(ServeError::Balance)? {
+        writer
+            .write_all(batch, cancel)
             .await
-            .map_err(ServeError::Balance)?
-        {
-            Some(batch) => writer
-                .write_all(batch, cancel)
-                .await
-                .map_err(ServeError::Write)?,
-            None => break,
-        }
+            .map_err(ServeError::Write)?;
     }
     Ok(())
 }
