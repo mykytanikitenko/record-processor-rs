@@ -9,6 +9,7 @@ use service::{Consumer, Transaction};
 use tokio_util::sync::CancellationToken;
 
 use crate::reader::{Input, ReadError, Reader};
+use crate::stdout;
 use crate::writer::{WriteError, Writer};
 
 /// The number of transactions buffered per [`Transactions::next_batch`]
@@ -141,7 +142,7 @@ where
         .consume(cancel, &mut transactions)
         .await
         .map_err(ServeError::Consume)?;
-    let mut writer = Writer::from(compio::fs::stdout());
+    let mut writer = Writer::from(stdout::stdout().await.map_err(ServeError::Write)?);
     let mut wrote_any = false;
     while let Some(batch) = balances
         .next_batch(cancel)

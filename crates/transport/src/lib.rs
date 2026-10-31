@@ -2,8 +2,9 @@
 
 pub mod reader;
 pub mod stdio;
+mod stdout;
 pub mod writer;
 
 pub use reader::{FillError, Input, ReadError, Reader, RecordError};
 pub use stdio::{ReadBatchError, ServeError, Transactions, serve};
-pub use writer::{FormatError, WriteError, Writer};
+pub use writer::{FormatError, Sink, WriteError, Writer};
