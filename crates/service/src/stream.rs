@@ -27,7 +27,9 @@ pub trait Transactions {
 /// storage.
 ///
 /// A batch borrows the stream's own storage, so callers read rows without
-/// copying them. Cancellation is cooperative: the caller passes a
+/// copying them. Balances are computed on demand rather than accumulated
+/// upfront, so advancing the stream mutates its cursor: `next_batch` takes
+/// `&mut self`. Cancellation is cooperative: the caller passes a
 /// [`CancellationToken`]; once it fires the stream yields a typed error item.
 pub trait Balances {
     /// The error produced while reading the next batch.
@@ -36,7 +38,7 @@ pub trait Balances {
     /// Return the next batch of balances, or `None` once the stream is
     /// exhausted.
     async fn next_batch<'stream>(
-        &'stream self,
+        &'stream mut self,
         cancel: &CancellationToken,
     ) -> Result<Option<&'stream [AccountBalance]>, Self::Error>;
 }

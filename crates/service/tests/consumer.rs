@@ -155,22 +155,26 @@ mod tests {
         })?)
     }
 
-    /// Drain `balances` fully, asserting each batch equals `expected`.
-    async fn assert_balances(
-        balances: BalanceStream,
+    /// Drain `balances` fully, asserting the concatenated rows equal `expected`.
+    async fn assert_balances<S>(
+        mut balances: BalanceStream<S>,
         expected: &[AccountBalance],
-    ) -> anyhow::Result<()> {
-        let first = balances.next_batch(&CancellationToken::new()).await;
-        if expected.is_empty() {
-            anyhow::ensure!(first == Ok(None), "unexpected empty stream {first:?}");
-            return Ok(());
+    ) -> anyhow::Result<()>
+    where
+        S: service::State,
+    {
+        let mut got: Vec<AccountBalance> = Vec::new();
+        loop {
+            match balances.next_batch(&CancellationToken::new()).await {
+                Ok(Some(rows)) => got.extend_from_slice(rows),
+                Ok(None) => break,
+                Err(error) => anyhow::bail!("unexpected balance error {error:?}"),
+            }
         }
         anyhow::ensure!(
-            first == Ok(Some(expected)),
-            "unexpected first batch {first:?}"
+            got.as_slice() == expected,
+            "unexpected balances {got:?}, expected {expected:?}"
         );
-        let second = balances.next_batch(&CancellationToken::new()).await;
-        anyhow::ensure!(second == Ok(None), "unexpected exhaustion {second:?}");
         Ok(())
     }
 
@@ -212,9 +216,13 @@ mod tests {
             .with(eq(ClientId::from(1)), eq(stored_client), always())
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
-        let _clients = state.expect_clients().times(1).returning(
-            move |_cancel| -> Result<Vec<(ClientId, ServiceState)>, MockClientsError> {
-                Ok(vec![(ClientId::from(1), stored_client)])
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), stored_client)))
+                } else {
+                    Ok(None)
+                }
             },
         );
         let engine = Engine::from(EngineParts { queue, state });
@@ -250,9 +258,13 @@ mod tests {
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
-        let _clients = state.expect_clients().times(1).returning(
-            move |_cancel| -> Result<Vec<(ClientId, ServiceState)>, MockClientsError> {
-                Ok(vec![(ClientId::from(1), stored)])
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), stored)))
+                } else {
+                    Ok(None)
+                }
             },
         );
         let engine = Engine::from(EngineParts { queue, state });
@@ -282,9 +294,13 @@ mod tests {
                     Ok(Some(loaded))
                 },
             );
-        let _clients = state.expect_clients().times(1).returning(
-            move |_cancel| -> Result<Vec<(ClientId, ServiceState)>, MockClientsError> {
-                Ok(vec![(ClientId::from(1), loaded)])
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), loaded)))
+                } else {
+                    Ok(None)
+                }
             },
         );
         let engine = Engine::from(EngineParts { queue, state });
@@ -313,8 +329,8 @@ mod tests {
                     Ok(None)
                 },
             );
-        let _clients = state.expect_clients().times(1).returning(
-            |_cancel| -> Result<Vec<(ClientId, ServiceState)>, MockClientsError> { Ok(Vec::new()) },
+        let _next_client = state.expect_next_client().times(1).returning(
+            |_after: Option<ClientId>, _cancel: &CancellationToken| Ok::<_, MockClientsError>(None),
         );
         let engine = Engine::from(EngineParts { queue, state });
         let balances = engine
@@ -365,9 +381,13 @@ mod tests {
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
-        let _clients = state.expect_clients().times(1).returning(
-            move |_cancel| -> Result<Vec<(ClientId, ServiceState)>, MockClientsError> {
-                Ok(vec![(ClientId::from(1), stored)])
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), stored)))
+                } else {
+                    Ok(None)
+                }
             },
         );
         let engine = Engine::from(EngineParts { queue, state });
@@ -419,9 +439,13 @@ mod tests {
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
-        let _clients = state.expect_clients().times(1).returning(
-            move |_cancel| -> Result<Vec<(ClientId, ServiceState)>, MockClientsError> {
-                Ok(vec![(ClientId::from(1), stored)])
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), stored)))
+                } else {
+                    Ok(None)
+                }
             },
         );
         let engine = Engine::from(EngineParts { queue, state });
@@ -473,9 +497,13 @@ mod tests {
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
             .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
-        let _clients = state.expect_clients().times(1).returning(
-            move |_cancel| -> Result<Vec<(ClientId, ServiceState)>, MockClientsError> {
-                Ok(vec![(ClientId::from(1), stored)])
+        let _next_client = state.expect_next_client().times(2).returning(
+            move |after: Option<ClientId>, _cancel: &CancellationToken| {
+                if after.is_none() {
+                    Ok(Some((ClientId::from(1), stored)))
+                } else {
+                    Ok(None)
+                }
             },
         );
         let engine = Engine::from(EngineParts { queue, state });
@@ -502,8 +530,8 @@ mod tests {
             .returning(
                 |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> { Ok(None) },
             );
-        let _clients = state.expect_clients().times(1).returning(
-            |_cancel| -> Result<Vec<(ClientId, ServiceState)>, MockClientsError> { Ok(Vec::new()) },
+        let _next_client = state.expect_next_client().times(1).returning(
+            |_after: Option<ClientId>, _cancel: &CancellationToken| Ok::<_, MockClientsError>(None),
         );
         let engine = Engine::from(EngineParts { queue, state });
         let balances = engine

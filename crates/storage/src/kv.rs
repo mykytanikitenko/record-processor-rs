@@ -17,18 +17,23 @@ use tokio_util::sync::CancellationToken;
     )
 )]
 pub trait Kv<K, V> {
-    /// The error produced by [`Kv::keys`].
+    /// The error produced by [`Kv::next_key`].
     type KeysError: Error;
     /// The error produced by [`Kv::load`].
     type LoadError: Error;
     /// The error produced by [`Kv::store`].
     type StoreError: Error;
 
-    /// Return every key currently stored.
-    async fn keys(&self, cancel: &CancellationToken) -> Result<Vec<K>, Self::KeysError>;
-
     /// Return the value stored for `key`, or `None` when absent.
     async fn load(&self, key: K, cancel: &CancellationToken) -> Result<Option<V>, Self::LoadError>;
+
+    /// Return the smallest key strictly greater than `after`, or `None` when
+    /// `after` is the greatest key. Pass `None` to obtain the smallest key.
+    async fn next_key(
+        &self,
+        after: Option<K>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<K>, Self::KeysError>;
 
     /// Store `value` for `key`, replacing any previous value.
     async fn store(

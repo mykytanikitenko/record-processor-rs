@@ -155,6 +155,8 @@ impl From<DepositStateParts> for DepositState {
     )
 )]
 pub trait State {
+    /// The error produced by [`State::next_client`].
+    type ClientsError: Error;
     /// The error produced by [`State::load_client`].
     type LoadClientError: Error;
     /// The error produced by [`State::load_deposit`].
@@ -163,8 +165,6 @@ pub trait State {
     type StoreClientError: Error;
     /// The error produced by [`State::store_deposit`].
     type StoreDepositError: Error;
-    /// The error produced by [`State::clients`].
-    type ClientsError: Error;
 
     /// Return the account state stored for `client`, or `None` when absent.
     async fn load_client(
@@ -179,6 +179,15 @@ pub trait State {
         tx: TxId,
         cancel: &CancellationToken,
     ) -> Result<Option<DepositState>, Self::LoadDepositError>;
+
+    /// Return the smallest stored client strictly greater than `after`, in
+    /// ascending client order, or `None` when `after` is the greatest client.
+    /// Pass `None` to obtain the first client.
+    async fn next_client(
+        &self,
+        after: Option<ClientId>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<(ClientId, ServiceState)>, Self::ClientsError>;
 
     /// Store `state` for `client`, replacing any previous account state.
     async fn store_client(
@@ -195,12 +204,6 @@ pub trait State {
         state: DepositState,
         cancel: &CancellationToken,
     ) -> Result<(), Self::StoreDepositError>;
-
-    /// Return every stored client, in ascending client order.
-    async fn clients(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<Vec<(ClientId, ServiceState)>, Self::ClientsError>;
 }
 
 /// The [`State`] composed over a client store and a deposit store.
@@ -265,11 +268,11 @@ where
     C: Kv<ClientId, ServiceState>,
     D: Kv<TxId, DepositState>,
 {
+    type ClientsError = ClientsError<C::KeysError, C::LoadError>;
     type LoadClientError = LoadClientError<C::LoadError>;
     type LoadDepositError = LoadDepositError<D::LoadError>;
     type StoreClientError = StoreClientError<C::StoreError>;
     type StoreDepositError = StoreDepositError<D::StoreError>;
-    type ClientsError = ClientsError<C::KeysError, C::LoadError>;
 
     #[inline]
     async fn load_client(
@@ -296,6 +299,34 @@ where
     }
 
     #[inline]
+    async fn next_client(
+        &self,
+        after: Option<ClientId>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<(ClientId, ServiceState)>, Self::ClientsError> {
+        let mut cursor = after;
+        loop {
+            let Some(client) = self
+                .clients
+                .next_key(cursor, cancel)
+                .await
+                .map_err(ClientsError::Keys)?
+            else {
+                return Ok(None);
+            };
+            if let Some(state) = self
+                .clients
+                .load(client, cancel)
+                .await
+                .map_err(ClientsError::Load)?
+            {
+                return Ok(Some((client, state)));
+            }
+            cursor = Some(client);
+        }
+    }
+
+    #[inline]
     async fn store_client(
         &self,
         client: ClientId,
@@ -319,29 +350,5 @@ where
             .store(tx, state, cancel)
             .await
             .map_err(StoreDepositError::Store)
-    }
-
-    async fn clients(
-        &self,
-        cancel: &CancellationToken,
-    ) -> Result<Vec<(ClientId, ServiceState)>, Self::ClientsError> {
-        let mut keys = self
-            .clients
-            .keys(cancel)
-            .await
-            .map_err(ClientsError::Keys)?;
-        keys.sort_unstable();
-        let mut clients = Vec::new();
-        for client in keys {
-            if let Some(state) = self
-                .clients
-                .load(client, cancel)
-                .await
-                .map_err(ClientsError::Load)?
-            {
-                clients.push((client, state));
-            }
-        }
-        Ok(clients)
     }
 }

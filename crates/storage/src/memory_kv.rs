@@ -43,11 +43,6 @@ where
     S: BuildHasher,
     A: Allocator,
 {
-    /// Read every key under the table lock.
-    async fn keys_inner(&self) -> Vec<K> {
-        self.table.lock().await.keys().cloned().collect()
-    }
-
     /// Read the value for `key` under the table lock.
     async fn read(&self, key: K) -> Option<V> {
         self.table.lock().await.get(&key).copied()
@@ -60,6 +55,29 @@ where
         let _previous: Option<V> = table.insert(key, value);
         drop(table);
         Ok(())
+    }
+}
+
+impl<K, V, S, A> MemoryKv<K, V, S, A>
+where
+    K: Eq + Hash + Clone + Ord,
+    V: Copy,
+    S: BuildHasher,
+    A: Allocator,
+{
+    /// Return the smallest stored key strictly greater than `after`, if any.
+    async fn next_key_inner(&self, after: Option<K>) -> Option<K> {
+        let table = self.table.lock().await;
+        let mut next: Option<K> = None;
+        for key in table.keys() {
+            let greater = after.as_ref().is_none_or(|after_key| key > after_key);
+            let smaller = next.as_ref().is_none_or(|candidate| key < candidate);
+            if greater && smaller {
+                next = Some(key.clone());
+            }
+        }
+        drop(table);
+        next
     }
 }
 
@@ -77,7 +95,7 @@ where
 
 impl<K, V, S, A> Kv<K, V> for MemoryKv<K, V, S, A>
 where
-    K: Eq + Hash + Clone,
+    K: Eq + Hash + Clone + Ord,
     V: Copy,
     S: BuildHasher,
     A: Allocator,
@@ -87,19 +105,23 @@ where
     type StoreError = StoreError;
 
     #[inline]
-    async fn keys(&self, cancel: &CancellationToken) -> Result<Vec<K>, Self::KeysError> {
-        cancel
-            .run_until_cancelled(self.keys_inner())
-            .await
-            .ok_or(KeysError::Cancelled)
-    }
-
-    #[inline]
     async fn load(&self, key: K, cancel: &CancellationToken) -> Result<Option<V>, Self::LoadError> {
         cancel
             .run_until_cancelled(self.read(key))
             .await
             .ok_or(LoadError::Cancelled)
+    }
+
+    #[inline]
+    async fn next_key(
+        &self,
+        after: Option<K>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<K>, Self::KeysError> {
+        cancel
+            .run_until_cancelled(self.next_key_inner(after))
+            .await
+            .ok_or(KeysError::Cancelled)
     }
 
     #[inline]
