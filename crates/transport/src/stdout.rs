@@ -11,7 +11,28 @@
 use compio::buf::{BufResult, IoBuf};
 use compio::io::{AsyncWrite, AsyncWriteAtExt as _, AsyncWriteExt};
 
-use crate::writer::{Sink, WriteError};
+use crate::writer::Sink;
+
+/// Failure to construct the standard-output sink.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum StdoutError {
+    /// The duplicated stdout descriptor could not be opened.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
+/// Failure to write through the standard-output sink.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum StdoutSinkError {
+    /// The underlying stdout descriptor failed.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// The output offset overran a numeric range.
+    #[error("output offset overran a numeric range")]
+    Overflow,
+}
 
 /// The standard-output sink, split by the underlying descriptor kind.
 #[derive(Debug)]
@@ -28,14 +49,16 @@ pub(crate) enum Stdout {
 }
 
 impl Sink for Stdout {
-    async fn flush(&mut self) -> Result<(), WriteError> {
+    type Error = StdoutSinkError;
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
         match self {
             Self::Regular { .. } => Ok(()),
             Self::Std(stdout) => Ok(AsyncWrite::flush(stdout).await?),
         }
     }
 
-    async fn write_all<T>(&mut self, bytes: T) -> Result<(), WriteError>
+    async fn write_all<T>(&mut self, bytes: T) -> Result<(), Self::Error>
     where
         T: IoBuf,
     {
@@ -45,9 +68,11 @@ impl Sink for Stdout {
                 let BufResult(result, _) = file.write_all_at(bytes, *offset).await;
                 result?;
                 let Ok(written) = u64::try_from(len) else {
-                    return Err(WriteError::Overflow);
+                    return Err(StdoutSinkError::Overflow);
                 };
-                *offset = offset.checked_add(written).ok_or(WriteError::Overflow)?;
+                *offset = offset
+                    .checked_add(written)
+                    .ok_or(StdoutSinkError::Overflow)?;
                 Ok(())
             }
             Self::Std(stdout) => {
@@ -62,9 +87,9 @@ impl Sink for Stdout {
 ///
 /// # Errors
 ///
-/// Returns [`WriteError::Io`] when the duplicated stdout file cannot be
+/// Returns [`StdoutError::Io`] when the duplicated stdout file cannot be
 /// opened.
-pub(crate) async fn stdout() -> Result<Stdout, WriteError> {
+pub(crate) async fn stdout() -> Result<Stdout, StdoutError> {
     match compio::fs::metadata("/proc/self/fd/1").await {
         Ok(metadata) if metadata.is_file() => {
             let offset = metadata.len();

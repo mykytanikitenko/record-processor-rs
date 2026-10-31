@@ -7,4 +7,5 @@ pub mod writer;
 
 pub use reader::{FillError, Input, ReadError, Reader, RecordError};
 pub use stdio::{ReadBatchError, ServeError, Transactions, serve};
-pub use writer::{FormatError, Sink, WriteError, Writer};
+pub use stdout::{StdoutError, StdoutSinkError};
+pub use writer::{FormatError, Sink, WriteBatchError, WriteHeaderError, Writer};
