@@ -1,5 +1,5 @@
-mod mmap_kv;
-mod mmap_queue;
+mod memory_kv;
+mod memory_queue;
 
 #[rudzio::main]
 fn main() {}

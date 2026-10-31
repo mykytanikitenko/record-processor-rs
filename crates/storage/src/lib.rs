@@ -1,11 +1,19 @@
-//! Storage contracts: an append-only record queue and a key-value state store.
+//! Storage contracts and their in-memory backings: an append-only record
+//! queue, a key-value store, and the engine state composed over key-value
+//! stores.
 
 pub mod kv;
-pub mod mmap_kv;
-pub mod mmap_queue;
+pub mod memory_kv;
+pub mod memory_queue;
+#[cfg(feature = "mocks")]
+pub mod mocks;
+pub mod offset;
 pub mod queue;
+pub mod state;
 
-pub use kv::{Entry, Kv, Lookup, Slot, Update, Walk};
-pub use mmap_kv::MmapKv;
-pub use mmap_queue::MmapQueue;
-pub use queue::{Append, Position, Queue, ReadAt, Span};
+pub use kv::Kv;
+pub use memory_kv::MemoryKv;
+pub use memory_queue::MemoryQueue;
+pub use offset::Offset;
+pub use queue::Queue;
+pub use state::{ClientState, CommittedOffset, KvState, State};

@@ -38,7 +38,9 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
+allocator-api2 = { version = "=0.2.21", default-features = false, features = ["std"] }
 anyhow = { version = "=1.0.104", default-features = false, features = ["std"] }
+async-lock = { version = "=3.4.2", default-features = false, features = ["std"] }
 cli = { path = "crates/cli", default-features = false, features = [] }
 compio = { version = "=0.19.2", default-features = false, features = [
   "runtime",
@@ -52,8 +54,13 @@ csv = { version = "=1.4.0", default-features = false, features = [] }
 derive_more = { version = "=2.1.1", default-features = false, features = [
   "debug",
   "deref",
+  "from",
 ] }
+event-listener = { version = "=5.4.2", default-features = false, features = ["std"] }
 futures-util = { version = "=0.3.34", default-features = false, features = ["std"] }
+hashbrown = { version = "=0.17.1", default-features = false, features = [
+  "allocator-api2",
+] }
 libc = { version = "=0.2.191", default-features = false, features = [] }
 record-processor-domain = { path = "crates/domain", default-features = false, features = [] }
 mockall = { version = "=0.15.0", default-features = false, features = [] }

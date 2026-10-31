@@ -12,14 +12,24 @@ repository.workspace = true
 autotests = false
 
 [dependencies]
+allocator-api2 = { workspace = true }
+async-lock = { workspace = true }
 derive_more = { workspace = true }
+event-listener = { workspace = true }
+hashbrown = { workspace = true }
+mockall = { workspace = true, optional = true }
+record-processor-domain = { workspace = true }
 thiserror = { workspace = true }
+tokio-util = { workspace = true }
 
 [dev-dependencies]
 anyhow.workspace = true
 record-processor-domain.workspace = true
 rudzio.workspace = true
 rust_decimal.workspace = true
+
+[features]
+mocks = ["dep:mockall"]
 
 [[test]]
 name = "main"
