@@ -3,10 +3,8 @@
 
 use compio::buf::{BufResult, IntoInner as _, IoBufMut as _};
 use compio::io::{AsyncRead, AsyncReadAt as _, AsyncReadExt as _};
-use record_processor_domain::client_id::ClientId;
-use record_processor_domain::input::{Amount, ConstructionError, Transaction, TxId};
 use rust_decimal::Decimal;
-use service::TransactionStream;
+use service::{Amount, ClientId, ConstructionError, Transaction, TransactionStream, TxId};
 use std::str::FromStr as _;
 use tokio_util::sync::CancellationToken;
 
