@@ -38,6 +38,21 @@ pub enum WriteError {
     /// A balance could not be formatted into the output buffer.
     #[error(transparent)]
     Format(#[from] FormatError),
+    /// The CSV header could not be written.
+    #[error(transparent)]
+    Header(#[from] WriteHeaderError),
+    /// The underlying byte sink failed.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
+
+/// Failure to write the CSV header.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum WriteHeaderError {
+    /// The sink was cancelled before the header was written.
+    #[error("balance writer cancelled")]
+    Cancelled,
     /// The underlying byte sink failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),
@@ -116,31 +131,12 @@ impl<S> Writer<S>
 where
     S: AsyncWrite,
 {
-    /// Write the CSV header exactly once, flushing so it reaches the sink even
-    /// when no balance row follows.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WriteError::Cancelled`] when the token fires or
-    /// [`WriteError::Io`] when the sink fails.
-    #[inline]
-    pub async fn write_header(&mut self, cancel: &CancellationToken) -> Result<(), WriteError> {
-        if cancel.is_cancelled() {
-            return Err(WriteError::Cancelled);
-        }
-        if !self.wrote_header {
-            self.sink.write_all(HEADER).await.0?;
-            self.wrote_header = true;
-        }
-        self.sink.flush().await?;
-        Ok(())
-    }
-
     /// Write the header (once) followed by every balance as a CSV row.
     ///
     /// # Errors
     ///
     /// Returns [`WriteError::Cancelled`] when the token fires,
+    /// [`WriteError::Header`] when the header cannot be written,
     /// [`WriteError::Io`] when the sink fails, or [`WriteError::Format`] when
     /// a row cannot be formatted.
     #[inline]
@@ -157,6 +153,29 @@ where
             let len = format_row(balance, &mut self.row)?;
             let bytes = self.row.slice(..len);
             self.sink.write_all(bytes).await.0?;
+        }
+        self.sink.flush().await?;
+        Ok(())
+    }
+
+    /// Write the CSV header exactly once, flushing so it reaches the sink even
+    /// when no balance row follows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WriteHeaderError::Cancelled`] when the token fires or
+    /// [`WriteHeaderError::Io`] when the sink fails.
+    #[inline]
+    pub async fn write_header(
+        &mut self,
+        cancel: &CancellationToken,
+    ) -> Result<(), WriteHeaderError> {
+        if cancel.is_cancelled() {
+            return Err(WriteHeaderError::Cancelled);
+        }
+        if !self.wrote_header {
+            self.sink.write_all(HEADER).await.0?;
+            self.wrote_header = true;
         }
         self.sink.flush().await?;
         Ok(())
