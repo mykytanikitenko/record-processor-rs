@@ -76,14 +76,13 @@ mod tests {
     async fn transactions_yield_the_appended_batch(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let expected = vec![deposit(1, 1, "1.5")?, deposit(2, 2, "2.0")?];
         let source = TransactionSource {
-            // TODO(lint/no-cloning): cloning/copying out of a value sidesteps ownership/lifetime handling; restructure to borrow or propagate instead
-            rows: expected.clone(),
+            rows: vec![deposit(1, 1, "1.5")?, deposit(2, 2, "2.0")?],
         };
+        let expected = source.rows.as_slice();
         let batch = source.next_batch(&CancellationToken::new()).await;
         anyhow::ensure!(
-            matches!(batch, Ok(Some(rows)) if rows == expected.as_slice()),
+            matches!(batch, Ok(Some(rows)) if rows == expected),
             "unexpected batch {batch:?}"
         );
         Ok(())
@@ -93,17 +92,16 @@ mod tests {
     async fn balances_yield_the_appended_batch(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let expected = vec![
-            balance(1, "1.5", "0.0", false)?,
-            balance(2, "0.0", "2.0", true)?,
-        ];
         let source = BalanceSource {
-            // TODO(lint/no-cloning): cloning/copying out of a value sidesteps ownership/lifetime handling; restructure to borrow or propagate instead
-            rows: expected.clone(),
+            rows: vec![
+                balance(1, "1.5", "0.0", false)?,
+                balance(2, "0.0", "2.0", true)?,
+            ],
         };
+        let expected = source.rows.as_slice();
         let batch = source.next_batch(&CancellationToken::new()).await;
         anyhow::ensure!(
-            matches!(batch, Ok(Some(rows)) if rows == expected.as_slice()),
+            matches!(batch, Ok(Some(rows)) if rows == expected),
             "unexpected batch {batch:?}"
         );
         Ok(())

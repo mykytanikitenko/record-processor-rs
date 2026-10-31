@@ -11,13 +11,16 @@ mod tests {
     use record_processor_domain::input::{Amount, Transaction, TxId};
     use rust_decimal::Decimal;
     use service::engine_state::MockState;
+    use service::mocks::{
+        MockLoadClientError, MockLoadDepositError, MockStoreClientError, MockStoreDepositError,
+    };
     use service::{
         ConsumeError, Consumer as _, DepositState, DepositStateParts, DepositStatus, Engine,
         EngineParts, ServiceState, ServiceStateParts,
     };
     use std::str::FromStr as _;
     use storage::memory_queue::{NextBatchError, Parts};
-    use storage::{MemoryQueue, Queue as _};
+    use storage::{MemoryQueue, Offset, Queue as _};
     use tokio_util::sync::CancellationToken;
 
     /// Build a deposit transaction.
@@ -87,8 +90,11 @@ mod tests {
     /// Append `rows` to a fresh queue and return it.
     async fn queue(rows: Vec<Transaction>) -> anyhow::Result<MemoryQueue<Transaction, Global>> {
         let queue = MemoryQueue::from(Parts { alloc: Global });
-        // TODO(lint/unused_results): unused result of type `storage::Offset`
-        queue.append(&rows, &CancellationToken::new()).await?;
+        let offset = queue.append(&rows, &CancellationToken::new()).await?;
+        anyhow::ensure!(
+            offset == Offset::from(0_u64),
+            "unexpected offset {offset:?}"
+        );
         Ok(queue)
     }
 
@@ -104,26 +110,28 @@ mod tests {
             .expect_load_deposit()
             .with(eq(TxId::from(1)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_tx, _cancel| Ok(None));
+            .returning(
+                |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> { Ok(None) },
+            );
         let _store_deposit = state
             .expect_store_deposit()
             .with(eq(TxId::from(1)), eq(stored_deposit), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_tx, _state, _cancel| Ok(()));
+            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreDepositError> { Ok(()) });
         let _load_client = state
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_client, _cancel| Ok(None));
+            .returning(
+                |_client, _cancel| -> Result<Option<ServiceState>, MockLoadClientError> {
+                    Ok(None)
+                },
+            );
         let _store_client = state
             .expect_store_client()
             .with(eq(ClientId::from(1)), eq(stored_client), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_client, _state, _cancel| Ok(()));
+            .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
         let engine = Engine::from(EngineParts { queue, state });
         engine.consume(&CancellationToken::new()).await?;
         Ok(())
@@ -141,14 +149,16 @@ mod tests {
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(move |_client, _cancel| Ok(Some(loaded)));
+            .returning(
+                move |_client, _cancel| -> Result<Option<ServiceState>, MockLoadClientError> {
+                    Ok(Some(loaded))
+                },
+            );
         let _store_client = state
             .expect_store_client()
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_client, _state, _cancel| Ok(()));
+            .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
         let engine = Engine::from(EngineParts { queue, state });
         engine.consume(&CancellationToken::new()).await?;
         Ok(())
@@ -165,8 +175,11 @@ mod tests {
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(move |_client, _cancel| Ok(Some(loaded)));
+            .returning(
+                move |_client, _cancel| -> Result<Option<ServiceState>, MockLoadClientError> {
+                    Ok(Some(loaded))
+                },
+            );
         let engine = Engine::from(EngineParts { queue, state });
         engine.consume(&CancellationToken::new()).await?;
         Ok(())
@@ -182,8 +195,11 @@ mod tests {
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_client, _cancel| Ok(None));
+            .returning(
+                |_client, _cancel| -> Result<Option<ServiceState>, MockLoadClientError> {
+                    Ok(None)
+                },
+            );
         let engine = Engine::from(EngineParts { queue, state });
         engine.consume(&CancellationToken::new()).await?;
         Ok(())
@@ -203,26 +219,30 @@ mod tests {
             .expect_load_deposit()
             .with(eq(TxId::from(1)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(move |_tx, _cancel| Ok(Some(available)));
+            .returning(
+                move |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> {
+                    Ok(Some(available))
+                },
+            );
         let _store_deposit = state
             .expect_store_deposit()
             .with(eq(TxId::from(1)), eq(disputed), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_tx, _state, _cancel| Ok(()));
+            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreDepositError> { Ok(()) });
         let _load_client = state
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(move |_client, _cancel| Ok(Some(loaded)));
+            .returning(
+                move |_client, _cancel| -> Result<Option<ServiceState>, MockLoadClientError> {
+                    Ok(Some(loaded))
+                },
+            );
         let _store_client = state
             .expect_store_client()
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_client, _state, _cancel| Ok(()));
+            .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
         let engine = Engine::from(EngineParts { queue, state });
         engine.consume(&CancellationToken::new()).await?;
         Ok(())
@@ -242,26 +262,30 @@ mod tests {
             .expect_load_deposit()
             .with(eq(TxId::from(1)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(move |_tx, _cancel| Ok(Some(disputed)));
+            .returning(
+                move |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> {
+                    Ok(Some(disputed))
+                },
+            );
         let _store_deposit = state
             .expect_store_deposit()
             .with(eq(TxId::from(1)), eq(available), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_tx, _state, _cancel| Ok(()));
+            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreDepositError> { Ok(()) });
         let _load_client = state
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(move |_client, _cancel| Ok(Some(loaded)));
+            .returning(
+                move |_client, _cancel| -> Result<Option<ServiceState>, MockLoadClientError> {
+                    Ok(Some(loaded))
+                },
+            );
         let _store_client = state
             .expect_store_client()
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_client, _state, _cancel| Ok(()));
+            .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
         let engine = Engine::from(EngineParts { queue, state });
         engine.consume(&CancellationToken::new()).await?;
         Ok(())
@@ -281,26 +305,30 @@ mod tests {
             .expect_load_deposit()
             .with(eq(TxId::from(1)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(move |_tx, _cancel| Ok(Some(disputed)));
+            .returning(
+                move |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> {
+                    Ok(Some(disputed))
+                },
+            );
         let _store_deposit = state
             .expect_store_deposit()
             .with(eq(TxId::from(1)), eq(charged_back), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_tx, _state, _cancel| Ok(()));
+            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreDepositError> { Ok(()) });
         let _load_client = state
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(move |_client, _cancel| Ok(Some(loaded)));
+            .returning(
+                move |_client, _cancel| -> Result<Option<ServiceState>, MockLoadClientError> {
+                    Ok(Some(loaded))
+                },
+            );
         let _store_client = state
             .expect_store_client()
             .with(eq(ClientId::from(1)), eq(stored), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_client, _state, _cancel| Ok(()));
+            .returning(|_client, _state, _cancel| -> Result<(), MockStoreClientError> { Ok(()) });
         let engine = Engine::from(EngineParts { queue, state });
         engine.consume(&CancellationToken::new()).await?;
         Ok(())
@@ -316,8 +344,9 @@ mod tests {
             .expect_load_deposit()
             .with(eq(TxId::from(999)), always())
             .times(1)
-            // TODO(lint/error-handling-requires-result): this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`
-            .returning(|_tx, _cancel| Ok(None));
+            .returning(
+                |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> { Ok(None) },
+            );
         let engine = Engine::from(EngineParts { queue, state });
         engine.consume(&CancellationToken::new()).await?;
         Ok(())

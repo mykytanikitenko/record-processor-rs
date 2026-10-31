@@ -202,8 +202,13 @@ impl<S> Reader<S>
 where
     S: AsyncRead,
 {
+    /// Return the next transaction from the source, or `None` at end-of-input.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError`] when the stream is cancelled, the byte source
+    /// fails, or a CSV record cannot be mapped onto a transaction.
     #[inline]
-    // TODO(lint/clippy::missing_errors_doc): docs for function returning `Result` missing `# Errors` section
     pub async fn next(
         &mut self,
         cancel: &CancellationToken,
