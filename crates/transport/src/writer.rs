@@ -1,6 +1,8 @@
 //! The account-balance writer: formats balances as CSV rows into an owned
 //! async byte sink.
 
+use core::error::Error;
+
 use compio::buf::IoBuf;
 use compio::io::{AsyncWrite, AsyncWriteExt};
 use rust_decimal::Decimal;
@@ -28,22 +30,13 @@ const HEADER: &[u8] = b"client,available,held,total,locked\n";
 /// id, three 29-digit signed decimals, a boolean, four commas, and a newline.
 const ROW_CAP: usize = 128;
 
-/// Failure to write through the production writer.
+/// Failure to write through a generic async byte sink.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum WriteError {
-    /// The sink was cancelled before every balance was written.
-    #[error("balance writer cancelled")]
-    Cancelled,
-    /// A balance could not be formatted into the output buffer.
-    #[error(transparent)]
-    Format(#[from] FormatError),
+pub enum SinkIoError {
     /// The underlying byte sink failed.
     #[error(transparent)]
     Io(#[from] std::io::Error),
-    /// The output offset overran a numeric range.
-    #[error("output offset overran a numeric range")]
-    Overflow,
 }
 
 /// Failure to format one account-balance row.
@@ -85,6 +78,42 @@ pub enum UintError {
     Overflow,
 }
 
+/// Failure to write the CSV header through the production writer.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum WriteHeaderError<E>
+where
+    E: Error,
+{
+    /// The sink was cancelled before the header was written.
+    #[error("balance writer cancelled")]
+    Cancelled,
+    /// The underlying byte sink failed.
+    #[error("the byte sink failed: {0}")]
+    Sink(E),
+}
+
+/// Failure to write a balance batch through the production writer.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum WriteBatchError<E>
+where
+    E: Error,
+{
+    /// The sink was cancelled before every balance was written.
+    #[error("balance writer cancelled")]
+    Cancelled,
+    /// A balance could not be formatted into the output buffer.
+    #[error(transparent)]
+    Format(#[from] FormatError),
+    /// The CSV header could not be written.
+    #[error("the CSV header failed: {0}")]
+    Header(WriteHeaderError<E>),
+    /// The underlying byte sink failed.
+    #[error("the byte sink failed: {0}")]
+    Sink(E),
+}
+
 /// A production account-balance writer over an async byte sink.
 #[derive(Debug)]
 pub struct Writer<S> {
@@ -122,24 +151,29 @@ impl<S> Writer<S> {
 /// [`compio::fs::Stdout`] cannot handle, without the writer carrying that
 /// concern.
 pub trait Sink {
+    /// The error the sink reports when flushing or writing fails.
+    type Error: Error;
+
     /// Flush the sink so every written byte reaches its destination.
-    async fn flush(&mut self) -> Result<(), WriteError>;
+    async fn flush(&mut self) -> Result<(), Self::Error>;
 
     /// Write all of `bytes` to the sink.
-    async fn write_all<T>(&mut self, bytes: T) -> Result<(), WriteError>
+    async fn write_all<T>(&mut self, bytes: T) -> Result<(), Self::Error>
     where
         T: IoBuf;
 }
 
 impl<S: AsyncWrite> Sink for S {
+    type Error = SinkIoError;
+
     #[inline]
-    async fn flush(&mut self) -> Result<(), WriteError> {
+    async fn flush(&mut self) -> Result<(), Self::Error> {
         AsyncWrite::flush(self).await?;
         Ok(())
     }
 
     #[inline]
-    async fn write_all<T>(&mut self, bytes: T) -> Result<(), WriteError>
+    async fn write_all<T>(&mut self, bytes: T) -> Result<(), Self::Error>
     where
         T: IoBuf,
     {
@@ -148,36 +182,42 @@ impl<S: AsyncWrite> Sink for S {
     }
 }
 
-impl<S> Writer<S>
+impl<S, E> Writer<S>
 where
-    S: Sink,
+    S: Sink<Error = E>,
+    E: Error,
 {
     /// Write the header (once) followed by every balance as a CSV row.
     ///
     /// # Errors
     ///
-    /// Returns [`WriteError::Cancelled`] when the token fires,
-    /// [`WriteError::Io`] when the sink fails, or [`WriteError::Format`] when
-    /// a row cannot be formatted.
+    /// Returns [`WriteBatchError::Cancelled`] when the token fires,
+    /// [`WriteBatchError::Sink`] when the sink fails, or
+    /// [`WriteBatchError::Format`] when a row cannot be formatted.
     #[inline]
     pub async fn write_all(
         &mut self,
         balances: &[AccountBalance],
         cancel: &CancellationToken,
-    ) -> Result<(), WriteError> {
+    ) -> Result<(), WriteBatchError<E>> {
         if cancel.is_cancelled() {
-            return Err(WriteError::Cancelled);
+            return Err(WriteBatchError::Cancelled);
         }
-        self.write_header(cancel).await?;
+        self.write_header(cancel)
+            .await
+            .map_err(WriteBatchError::Header)?;
         for balance in balances {
             if cancel.is_cancelled() {
-                return Err(WriteError::Cancelled);
+                return Err(WriteBatchError::Cancelled);
             }
             let len = format_row(balance, &mut self.row)?;
             let bytes = self.row.slice(..len);
-            self.sink.write_all(bytes).await?;
+            self.sink
+                .write_all(bytes)
+                .await
+                .map_err(WriteBatchError::Sink)?;
         }
-        self.sink.flush().await?;
+        self.sink.flush().await.map_err(WriteBatchError::Sink)?;
         Ok(())
     }
 
@@ -186,18 +226,24 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`WriteError::Cancelled`] when the token fires or
-    /// [`WriteError::Io`] when the sink fails.
+    /// Returns [`WriteHeaderError::Cancelled`] when the token fires or
+    /// [`WriteHeaderError::Sink`] when the sink fails.
     #[inline]
-    pub async fn write_header(&mut self, cancel: &CancellationToken) -> Result<(), WriteError> {
+    pub async fn write_header(
+        &mut self,
+        cancel: &CancellationToken,
+    ) -> Result<(), WriteHeaderError<E>> {
         if cancel.is_cancelled() {
-            return Err(WriteError::Cancelled);
+            return Err(WriteHeaderError::Cancelled);
         }
         if !self.wrote_header {
-            self.sink.write_all(HEADER).await?;
+            self.sink
+                .write_all(HEADER)
+                .await
+                .map_err(WriteHeaderError::Sink)?;
             self.wrote_header = true;
         }
-        self.sink.flush().await?;
+        self.sink.flush().await.map_err(WriteHeaderError::Sink)?;
         Ok(())
     }
 }

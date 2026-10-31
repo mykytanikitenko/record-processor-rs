@@ -9,7 +9,7 @@ mod tests {
     use service::{AccountBalance, Balance, ClientId, Parts};
     use std::str::FromStr as _;
     use tokio_util::sync::CancellationToken;
-    use transport::{WriteError, Writer};
+    use transport::{WriteBatchError, Writer};
 
     /// Build an account balance row for an input to the writer.
     fn balance(
@@ -85,7 +85,7 @@ mod tests {
             .write_all(&[balance(1, "1.5", "0.0", false)?], &token)
             .await;
         anyhow::ensure!(
-            matches!(result, Err(WriteError::Cancelled)),
+            matches!(result, Err(WriteBatchError::Cancelled)),
             "expected cancelled, got {result:?}"
         );
         Ok(())

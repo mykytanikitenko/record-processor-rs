@@ -9,8 +9,8 @@ use service::{Consumer, Transaction};
 use tokio_util::sync::CancellationToken;
 
 use crate::reader::{Input, ReadError, Reader};
-use crate::stdout;
-use crate::writer::{WriteError, Writer};
+use crate::stdout::{self, StdoutError, StdoutSinkError};
+use crate::writer::{WriteBatchError, Writer};
 
 /// The number of transactions buffered per [`Transactions::next_batch`]
 /// yield.
@@ -115,9 +115,12 @@ where
     /// Draining the transaction stream into balances failed.
     #[error("consuming the transaction stream failed: {0}")]
     Consume(C::ConsumeError),
+    /// Opening the standard output failed.
+    #[error("opening the standard output failed: {0}")]
+    Stdout(StdoutError),
     /// Writing a balance batch to stdout failed.
     #[error("writing the balance stream failed: {0}")]
-    Write(WriteError),
+    Write(WriteBatchError<StdoutSinkError>),
 }
 
 /// Drive `consumer` over `input`, writing the projected balances to stdout.
@@ -125,7 +128,8 @@ where
 /// # Errors
 ///
 /// Returns [`ServeError::Consume`] when draining the transaction stream fails,
-/// [`ServeError::Balance`] when reading a balance batch fails, and
+/// [`ServeError::Balance`] when reading a balance batch fails,
+/// [`ServeError::Stdout`] when opening standard output fails, and
 /// [`ServeError::Write`] when writing a balance batch fails.
 #[inline]
 pub async fn serve<C, S>(
@@ -142,7 +146,7 @@ where
         .consume(cancel, &mut transactions)
         .await
         .map_err(ServeError::Consume)?;
-    let mut writer = Writer::from(stdout::stdout().await.map_err(ServeError::Write)?);
+    let mut writer = Writer::from(stdout::stdout().await.map_err(ServeError::Stdout)?);
     let mut wrote_any = false;
     while let Some(batch) = balances
         .next_batch(cancel)
