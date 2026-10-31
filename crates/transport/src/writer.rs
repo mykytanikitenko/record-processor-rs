@@ -3,8 +3,8 @@
 
 use compio::buf::IoBuf as _;
 use compio::io::{AsyncWrite, AsyncWriteExt as _};
-use record_processor_domain::output::AccountBalance;
 use rust_decimal::Decimal;
+use service::AccountBalance;
 use tokio_util::sync::CancellationToken;
 
 /// Appends one byte to the reused output buffer, failing loudly when the

@@ -13,7 +13,6 @@ autotests = false
 
 [dependencies]
 compio = { workspace = true }
-record-processor-domain = { workspace = true }
 rust_decimal = { workspace = true }
 service = { workspace = true }
 thiserror = { workspace = true }

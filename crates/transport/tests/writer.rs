@@ -5,9 +5,8 @@ use rudzio::runtime::futures::ThreadPool;
 
 #[rudzio::suite([(runtime = ThreadPool::new, suite = Suite, test = rudzio::common::context::Test)])]
 mod tests {
-    use record_processor_domain::client_id::ClientId;
-    use record_processor_domain::output::{AccountBalance, Balance, Parts};
     use rust_decimal::Decimal;
+    use service::{AccountBalance, Balance, ClientId, Parts};
     use std::str::FromStr as _;
     use tokio_util::sync::CancellationToken;
     use transport::{WriteError, Writer};
