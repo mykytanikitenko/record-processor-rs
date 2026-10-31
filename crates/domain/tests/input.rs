@@ -1,9 +1,9 @@
 //! Input-side domain tests: amount validation and CSV deserialization.
 
 use rudzio::common::context::Suite;
-use rudzio::runtime::futures::ThreadPool;
+use rudzio::runtime::compio::Runtime;
 
-#[rudzio::suite([(runtime = ThreadPool::new, suite = Suite, test = rudzio::common::context::Test)])]
+#[rudzio::suite([(runtime = Runtime::new, suite = Suite, test = rudzio::common::context::Test)])]
 mod tests {
     use record_processor_domain::client_id::ClientId;
     use record_processor_domain::input::{Amount, ConstructionError, Transaction, TxId};
