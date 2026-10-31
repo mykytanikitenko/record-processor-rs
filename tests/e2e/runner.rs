@@ -1,11 +1,8 @@
 //! Binary spawning and process-output capture for the e2e harness.
 //!
 //! Process spawning goes through `compio::process::Command`, the project's
-//! only allowed process layer. Each helper starts a fresh `compio` runtime and
-//! blocks on the process operation: the workspace's `compio` (0.19.2) is a
-//! different crate version from the `compio` runtime rudzio's `runtime-compio`
-//! feature pulls in (0.11), so the process calls cannot run on rudzio's suite
-//! runtime and instead own a short-lived workspace-compio runtime per call.
+//! only allowed process layer. The helpers are async and run on the same
+//! `compio` runtime the rudzio suite drives, so no nested runtime is needed.
 //!
 //! Note that compio's process API surfaces `std::process::Stdio` and
 //! `std::process::Output` in its public signatures (there is no compio-native
@@ -43,20 +40,17 @@ pub(crate) fn resolve_bin() -> PathBuf {
 ///
 /// # Errors
 ///
-/// Returns an error when the compio runtime cannot start, the binary cannot be
-/// spawned, or its output is not valid UTF-8.
-pub(crate) fn run_binary(bin: &Path, input: &Path) -> anyhow::Result<ProcessOutput> {
-    let rt = compio::runtime::Runtime::new().context("failed to start the compio runtime")?;
-    rt.block_on(async move {
-        let output = compio::process::Command::new(bin)
-            .arg(input)
-            .stdout(Stdio::piped())?
-            .stderr(Stdio::piped())?
-            .output()
-            .await
-            .context("failed to run the record-processor binary")?;
-        process_output(output)
-    })
+/// Returns an error when the binary cannot be spawned, or its output is not
+/// valid UTF-8.
+pub(crate) async fn run_binary(bin: &Path, input: &Path) -> anyhow::Result<ProcessOutput> {
+    let output = compio::process::Command::new(bin)
+        .arg(input)
+        .stdout(Stdio::piped())?
+        .stderr(Stdio::piped())?
+        .output()
+        .await
+        .context("failed to run the record-processor binary")?;
+    process_output(output)
 }
 
 /// Run the binary at `bin` with no arguments, feeding `input` to its standard
@@ -64,32 +58,28 @@ pub(crate) fn run_binary(bin: &Path, input: &Path) -> anyhow::Result<ProcessOutp
 ///
 /// # Errors
 ///
-/// Returns an error when the compio runtime cannot start, the binary cannot be
-/// spawned, its standard input cannot be written, or its output is not valid
-/// UTF-8.
-pub(crate) fn run_binary_stdin(bin: &Path, input: String) -> anyhow::Result<ProcessOutput> {
-    let rt = compio::runtime::Runtime::new().context("failed to start the compio runtime")?;
-    rt.block_on(async move {
-        let mut cmd = compio::process::Command::new(bin);
-        let mut child = cmd
-            .stdin(Stdio::piped())?
-            .stdout(Stdio::piped())?
-            .stderr(Stdio::piped())?
-            .spawn()
-            .context("failed to spawn the record-processor binary")?;
-        let mut stdin = child
-            .stdin
-            .take()
-            .context("record-processor stdin is not piped")?;
-        let write_result = stdin.write_all(input).await.0;
-        write_result.context("failed to write record-processor stdin")?;
-        drop(stdin);
-        let output = child
-            .wait_with_output()
-            .await
-            .context("failed to wait for the record-processor binary")?;
-        process_output(output)
-    })
+/// Returns an error when the binary cannot be spawned, its standard input
+/// cannot be written, or its output is not valid UTF-8.
+pub(crate) async fn run_binary_stdin(bin: &Path, input: String) -> anyhow::Result<ProcessOutput> {
+    let mut cmd = compio::process::Command::new(bin);
+    let mut child = cmd
+        .stdin(Stdio::piped())?
+        .stdout(Stdio::piped())?
+        .stderr(Stdio::piped())?
+        .spawn()
+        .context("failed to spawn the record-processor binary")?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .context("record-processor stdin is not piped")?;
+    let write_result = stdin.write_all(input).await.0;
+    write_result.context("failed to write record-processor stdin")?;
+    drop(stdin);
+    let output = child
+        .wait_with_output()
+        .await
+        .context("failed to wait for the record-processor binary")?;
+    process_output(output)
 }
 
 /// Convert a spawned `Output` into a decoded [`ProcessOutput`].
