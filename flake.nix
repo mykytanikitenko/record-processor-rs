@@ -98,7 +98,9 @@
             export LLVM_PROFDATA="${pkgs.llvmPackages_23.llvm}/bin/llvm-profdata"
             export LLVM_COV="${pkgs.llvmPackages_23.llvm}/bin/llvm-cov"
             if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-              git config core.hooksPath scripts/hooks
+              if [ "''${RECORD_PROCESSOR_HOOKS:-on}" != "off" ]; then
+                git config core.hooksPath scripts/hooks
+              fi
             fi
             echo "record-processor — dev shell"
             echo "  just build   — cargo build"
