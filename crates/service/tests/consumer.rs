@@ -16,12 +16,12 @@ mod tests {
     use service::Balances as _;
     use service::engine_state::MockState;
     use service::mocks::{
-        MockClientsError, MockLoadClientError, MockLoadDepositError, MockStoreClientError,
-        MockStoreDepositError,
+        MockClientsError, MockLoadClientError, MockLoadTxError, MockStoreClientError,
+        MockStoreTxError,
     };
     use service::{
-        BalanceStream, ConsumeError, Consumer as _, DepositState, DepositStateParts, DepositStatus,
-        Engine, EngineParts, ServiceState, ServiceStateParts,
+        BalanceStream, ConsumeError, Consumer as _, Engine, EngineParts, ServiceState,
+        ServiceStateParts, TxKind, TxRecord, TxRecordParts, TxStatus,
     };
     use std::str::FromStr as _;
     use storage::MemoryQueue;
@@ -127,16 +127,23 @@ mod tests {
         }))
     }
 
-    /// Build a deposit state.
-    fn deposit_state(
-        client: u16,
-        amount: &str,
-        status: DepositStatus,
-    ) -> anyhow::Result<DepositState> {
-        Ok(DepositState::from(DepositStateParts {
+    /// Build a deposit transaction record.
+    fn deposit_record(client: u16, amount: &str, status: TxStatus) -> anyhow::Result<TxRecord> {
+        Ok(TxRecord::from(TxRecordParts {
+            kind: TxKind::Deposit,
             amount: Decimal::from_str(amount)?,
             client: ClientId::from(client),
             status,
+        }))
+    }
+
+    /// Build a withdrawal transaction record.
+    fn withdrawal_record(client: u16, amount: &str) -> anyhow::Result<TxRecord> {
+        Ok(TxRecord::from(TxRecordParts {
+            kind: TxKind::Withdrawal,
+            amount: Decimal::from_str(amount)?,
+            client: ClientId::from(client),
+            status: TxStatus::Available,
         }))
     }
 
@@ -182,7 +189,7 @@ mod tests {
     async fn deposit_credits_new_account(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let stored_deposit = deposit_state(1, "1.5", DepositStatus::Available)?;
+        let stored_record = deposit_record(1, "1.5", TxStatus::Available)?;
         let stored_client = service_state("1.5", "0.0", false)?;
         let mut source = TransactionSource {
             rows: vec![deposit(1, 1, "1.5")?],
@@ -190,18 +197,16 @@ mod tests {
         };
         let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
-        let _load_deposit = state
-            .expect_load_deposit()
+        let _load_tx = state
+            .expect_load_tx()
             .with(eq(TxId::from(1)), always())
             .times(1)
-            .returning(
-                |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> { Ok(None) },
-            );
-        let _store_deposit = state
-            .expect_store_deposit()
-            .with(eq(TxId::from(1)), eq(stored_deposit), always())
+            .returning(|_tx, _cancel| -> Result<Option<TxRecord>, MockLoadTxError> { Ok(None) });
+        let _store_tx = state
+            .expect_store_tx()
+            .with(eq(TxId::from(1)), eq(stored_record), always())
             .times(1)
-            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreDepositError> { Ok(()) });
+            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreTxError> { Ok(()) });
         let _load_client = state
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
@@ -238,6 +243,7 @@ mod tests {
     async fn withdrawal_debits_sufficient_funds(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
+        let stored_record = withdrawal_record(1, "4.0")?;
         let loaded = service_state("10.0", "0.0", false)?;
         let stored = service_state("6.0", "0.0", false)?;
         let mut source = TransactionSource {
@@ -246,6 +252,16 @@ mod tests {
         };
         let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
+        let _load_tx = state
+            .expect_load_tx()
+            .with(eq(TxId::from(1)), always())
+            .times(1)
+            .returning(|_tx, _cancel| -> Result<Option<TxRecord>, MockLoadTxError> { Ok(None) });
+        let _store_tx = state
+            .expect_store_tx()
+            .with(eq(TxId::from(1)), eq(stored_record), always())
+            .times(1)
+            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreTxError> { Ok(()) });
         let _load_client = state
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
@@ -282,6 +298,7 @@ mod tests {
     async fn withdrawal_insufficient_is_ignored(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
+        let stored_record = withdrawal_record(1, "20.0")?;
         let loaded = service_state("10.0", "0.0", false)?;
         let mut source = TransactionSource {
             rows: vec![withdrawal(1, 1, "20.0")?],
@@ -289,6 +306,16 @@ mod tests {
         };
         let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
+        let _load_tx = state
+            .expect_load_tx()
+            .with(eq(TxId::from(1)), always())
+            .times(1)
+            .returning(|_tx, _cancel| -> Result<Option<TxRecord>, MockLoadTxError> { Ok(None) });
+        let _store_tx = state
+            .expect_store_tx()
+            .with(eq(TxId::from(1)), eq(stored_record), always())
+            .times(1)
+            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreTxError> { Ok(()) });
         let _load_client = state
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
@@ -320,6 +347,7 @@ mod tests {
     async fn withdrawal_new_client_creates_zeroed_record(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
+        let stored_record = withdrawal_record(1, "5.0")?;
         let zeroed = service_state("0.0", "0.0", false)?;
         let mut source = TransactionSource {
             rows: vec![withdrawal(1, 1, "5.0")?],
@@ -327,6 +355,16 @@ mod tests {
         };
         let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
+        let _load_tx = state
+            .expect_load_tx()
+            .with(eq(TxId::from(1)), always())
+            .times(1)
+            .returning(|_tx, _cancel| -> Result<Option<TxRecord>, MockLoadTxError> { Ok(None) });
+        let _store_tx = state
+            .expect_store_tx()
+            .with(eq(TxId::from(1)), eq(stored_record), always())
+            .times(1)
+            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreTxError> { Ok(()) });
         let _load_client = state
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
@@ -363,8 +401,8 @@ mod tests {
     async fn dispute_moves_available_to_held(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let available = deposit_state(1, "10.0", DepositStatus::Available)?;
-        let disputed = deposit_state(1, "10.0", DepositStatus::Disputed)?;
+        let available = deposit_record(1, "10.0", TxStatus::Available)?;
+        let disputed = deposit_record(1, "10.0", TxStatus::Disputed)?;
         let loaded = service_state("10.0", "0.0", false)?;
         let stored = service_state("0.0", "10.0", false)?;
         let mut source = TransactionSource {
@@ -373,20 +411,20 @@ mod tests {
         };
         let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
-        let _load_deposit = state
-            .expect_load_deposit()
+        let _load_tx = state
+            .expect_load_tx()
             .with(eq(TxId::from(1)), always())
             .times(1)
             .returning(
-                move |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> {
+                move |_tx, _cancel| -> Result<Option<TxRecord>, MockLoadTxError> {
                     Ok(Some(available))
                 },
             );
-        let _store_deposit = state
-            .expect_store_deposit()
+        let _store_tx = state
+            .expect_store_tx()
             .with(eq(TxId::from(1)), eq(disputed), always())
             .times(1)
-            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreDepositError> { Ok(()) });
+            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreTxError> { Ok(()) });
         let _load_client = state
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
@@ -423,8 +461,8 @@ mod tests {
     async fn resolve_releases_held_to_available(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let disputed = deposit_state(1, "10.0", DepositStatus::Disputed)?;
-        let available = deposit_state(1, "10.0", DepositStatus::Available)?;
+        let disputed = deposit_record(1, "10.0", TxStatus::Disputed)?;
+        let available = deposit_record(1, "10.0", TxStatus::Available)?;
         let loaded = service_state("0.0", "10.0", false)?;
         let stored = service_state("10.0", "0.0", false)?;
         let mut source = TransactionSource {
@@ -433,20 +471,20 @@ mod tests {
         };
         let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
-        let _load_deposit = state
-            .expect_load_deposit()
+        let _load_tx = state
+            .expect_load_tx()
             .with(eq(TxId::from(1)), always())
             .times(1)
             .returning(
-                move |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> {
+                move |_tx, _cancel| -> Result<Option<TxRecord>, MockLoadTxError> {
                     Ok(Some(disputed))
                 },
             );
-        let _store_deposit = state
-            .expect_store_deposit()
+        let _store_tx = state
+            .expect_store_tx()
             .with(eq(TxId::from(1)), eq(available), always())
             .times(1)
-            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreDepositError> { Ok(()) });
+            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreTxError> { Ok(()) });
         let _load_client = state
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
@@ -483,8 +521,8 @@ mod tests {
     async fn chargeback_drains_held_and_locks(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let disputed = deposit_state(1, "10.0", DepositStatus::Disputed)?;
-        let charged_back = deposit_state(1, "10.0", DepositStatus::ChargedBack)?;
+        let disputed = deposit_record(1, "10.0", TxStatus::Disputed)?;
+        let charged_back = deposit_record(1, "10.0", TxStatus::ChargedBack)?;
         let loaded = service_state("0.0", "10.0", false)?;
         let stored = service_state("0.0", "0.0", true)?;
         let mut source = TransactionSource {
@@ -493,20 +531,20 @@ mod tests {
         };
         let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
-        let _load_deposit = state
-            .expect_load_deposit()
+        let _load_tx = state
+            .expect_load_tx()
             .with(eq(TxId::from(1)), always())
             .times(1)
             .returning(
-                move |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> {
+                move |_tx, _cancel| -> Result<Option<TxRecord>, MockLoadTxError> {
                     Ok(Some(disputed))
                 },
             );
-        let _store_deposit = state
-            .expect_store_deposit()
+        let _store_tx = state
+            .expect_store_tx()
             .with(eq(TxId::from(1)), eq(charged_back), always())
             .times(1)
-            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreDepositError> { Ok(()) });
+            .returning(|_tx, _state, _cancel| -> Result<(), MockStoreTxError> { Ok(()) });
         let _load_client = state
             .expect_load_client()
             .with(eq(ClientId::from(1)), always())
@@ -549,12 +587,42 @@ mod tests {
         };
         let queue = MemoryQueue::from(Parts { alloc: Global });
         let mut state = MockState::new();
-        let _load_deposit = state
-            .expect_load_deposit()
+        let _load_tx = state
+            .expect_load_tx()
             .with(eq(TxId::from(999)), always())
             .times(1)
+            .returning(|_tx, _cancel| -> Result<Option<TxRecord>, MockLoadTxError> { Ok(None) });
+        let _next_client = state.expect_next_client().times(1).returning(
+            |_after: Option<ClientId>,
+             _cancel: &CancellationToken|
+             -> Result<Option<(ClientId, ServiceState)>, MockClientsError> { Ok(None) },
+        );
+        let engine = Engine::from(EngineParts { queue, state });
+        let balances = engine
+            .consume(&CancellationToken::new(), &mut source)
+            .await?;
+        assert_balances(balances, &[]).await
+    }
+
+    #[rudzio::test]
+    async fn dispute_on_withdrawal_is_ignored(
+        _ctx: &rudzio::common::context::Test,
+    ) -> anyhow::Result<()> {
+        let recorded = withdrawal_record(1, "5.0")?;
+        let mut source = TransactionSource {
+            rows: vec![dispute(1, 2)],
+            yielded: Cell::new(false),
+        };
+        let queue = MemoryQueue::from(Parts { alloc: Global });
+        let mut state = MockState::new();
+        let _load_tx = state
+            .expect_load_tx()
+            .with(eq(TxId::from(2)), always())
+            .times(1)
             .returning(
-                |_tx, _cancel| -> Result<Option<DepositState>, MockLoadDepositError> { Ok(None) },
+                move |_tx, _cancel| -> Result<Option<TxRecord>, MockLoadTxError> {
+                    Ok(Some(recorded))
+                },
             );
         let _next_client = state.expect_next_client().times(1).returning(
             |_after: Option<ClientId>,
