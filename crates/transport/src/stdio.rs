@@ -141,6 +141,10 @@ where
         .await
         .map_err(ServeError::Consume)?;
     let mut writer = Writer::from(compio::fs::stdout());
+    writer
+        .write_header(cancel)
+        .await
+        .map_err(ServeError::Write)?;
     while let Some(batch) = balances.next_batch(cancel).await.map_err(ServeError::Balance)? {
         writer
             .write_all(batch, cancel)
