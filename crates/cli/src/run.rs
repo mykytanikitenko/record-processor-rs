@@ -1,9 +1,113 @@
 //! Command-line wiring: parse arguments, build the runtime, and drive the
 //! payments engine to stdout with cooperative cancellation.
 
-use compio::io::AsyncRead;
+use allocator_api2::alloc::Global;
 use futures_util::future::Either;
+use service::engine_state::KvState;
+use service::{ClientId, DepositState, EngineParts, ServiceState, State, Transaction, TxId};
+use std::hash::RandomState;
+use storage::memory_kv::{KeysError, LoadError, MemoryKv, Parts as KvParts, StoreError};
+use storage::memory_queue::{MemoryQueue, Parts as QueueParts};
 use tokio_util::sync::CancellationToken;
+
+/// The in-memory store of each client's account state.
+type Clients = MemoryKv<ClientId, ServiceState, RandomState, Global>;
+/// The in-memory store of each deposit's lifecycle.
+type Deposits = MemoryKv<TxId, DepositState, RandomState, Global>;
+/// The in-memory transaction queue.
+type Queue = MemoryQueue<Transaction, Global>;
+/// The payments engine over the in-memory storage.
+type Engine = service::Engine<Queue, MemoryState>;
+
+/// The engine state: per-client account state and the deposit lifecycle, both
+/// held in memory.
+#[derive(Debug)]
+struct MemoryState {
+    /// The store holding each client's account state.
+    clients: Clients,
+    /// The store holding each deposit's lifecycle.
+    deposits: Deposits,
+}
+
+impl State for MemoryState {
+    type ClientsError = service::ClientsError<KeysError, LoadError>;
+    type LoadClientError = service::LoadClientError<LoadError>;
+    type LoadDepositError = service::LoadDepositError<LoadError>;
+    type StoreClientError = service::StoreClientError<StoreError>;
+    type StoreDepositError = service::StoreDepositError<StoreError>;
+
+    #[inline]
+    async fn load_client(
+        &self,
+        client: ClientId,
+        cancel: &CancellationToken,
+    ) -> Result<Option<ServiceState>, Self::LoadClientError> {
+        KvState {
+            clients: &self.clients,
+            deposits: &self.deposits,
+        }
+        .load_client(client, cancel)
+        .await
+    }
+
+    #[inline]
+    async fn load_deposit(
+        &self,
+        tx: TxId,
+        cancel: &CancellationToken,
+    ) -> Result<Option<DepositState>, Self::LoadDepositError> {
+        KvState {
+            clients: &self.clients,
+            deposits: &self.deposits,
+        }
+        .load_deposit(tx, cancel)
+        .await
+    }
+
+    #[inline]
+    async fn next_client(
+        &self,
+        after: Option<ClientId>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<(ClientId, ServiceState)>, Self::ClientsError> {
+        KvState {
+            clients: &self.clients,
+            deposits: &self.deposits,
+        }
+        .next_client(after, cancel)
+        .await
+    }
+
+    #[inline]
+    async fn store_client(
+        &self,
+        client: ClientId,
+        state: ServiceState,
+        cancel: &CancellationToken,
+    ) -> Result<(), Self::StoreClientError> {
+        KvState {
+            clients: &self.clients,
+            deposits: &self.deposits,
+        }
+        .store_client(client, state, cancel)
+        .await
+    }
+
+    #[inline]
+    async fn store_deposit(
+        &self,
+        tx: TxId,
+        state: DepositState,
+        cancel: &CancellationToken,
+    ) -> Result<(), Self::StoreDepositError> {
+        KvState {
+            clients: &self.clients,
+            deposits: &self.deposits,
+        }
+        .store_deposit(tx, state, cancel)
+        .await
+    }
+}
 
 /// Failure while running the command-line entry point.
 #[derive(Debug, thiserror::Error)]
@@ -45,12 +149,16 @@ pub enum ServeInputError {
 }
 
 /// Failure while processing a single input source.
+///
+/// The engine's concrete error type is parameterised over the private
+/// [`MemoryState`], so it is erased into a boxed error rather than leaking the
+/// composition detail through the public [`RunError`] surface.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ProcessError {
-    /// The payments engine has no implementation over the storage contracts.
-    #[error("the payments engine is not implemented")]
-    Unimplemented,
+    /// Serving the transaction stream through the engine failed.
+    #[error("serving the transaction stream failed: {0}")]
+    Serve(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Wait for either SIGINT or SIGTERM, then cancel the token.
@@ -64,16 +172,27 @@ async fn cancel_on_signal(token: CancellationToken) -> Result<(), CancelError> {
     Ok(())
 }
 
-/// Drive the engine over `source`; the engine awaits its storage-backed
-/// implementation, so every source reports [`ProcessError::Unimplemented`].
-async fn process<S>(
-    _source: transport::Input<S>,
-    _token: &CancellationToken,
-) -> Result<(), ProcessError>
-where
-    S: AsyncRead,
-{
-    Err(ProcessError::Unimplemented)
+/// Drive the engine over `source`, projecting the resulting balances to
+/// stdout.
+async fn process(
+    source: transport::Input<compio::fs::Stdin>,
+    token: &CancellationToken,
+) -> Result<(), ProcessError> {
+    let clients: Clients = MemoryKv::from(KvParts {
+        alloc: Global,
+        hasher: RandomState::new(),
+    });
+    let deposits: Deposits = MemoryKv::from(KvParts {
+        alloc: Global,
+        hasher: RandomState::new(),
+    });
+    let queue: Queue = MemoryQueue::from(QueueParts { alloc: Global });
+    let state = MemoryState { clients, deposits };
+    let engine = Engine::from(EngineParts { queue, state });
+    transport::serve(engine, source, token)
+        .await
+        .map_err(|error| ProcessError::Serve(Box::new(error)))?;
+    Ok(())
 }
 
 /// Open the input source and drive the engine.
