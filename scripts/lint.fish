@@ -108,7 +108,7 @@ end
 # (g) Justfile recipe lint
 set -l recipe_status 1
 set -l actual (just --dump --dump-format json --unstable | jq -r '.recipes | keys[]' | sort)
-set -l expected build clean fmt lint lint-no-implicit-alloc lint-no-manual-fmt lint-no-materialize lint-no-std-fs lint-no-std-io lint-no-tokio-runtime test
+set -l expected build clean fmt lint lint-no-global-allocator lint-no-implicit-alloc lint-no-manual-fmt lint-no-materialize lint-no-std-fs lint-no-std-io lint-no-tokio-runtime lint-no-to-string test
 if test (string join ' ' $actual) = (string join ' ' $expected)
     ok "recipe lint passed"
     set recipe_status 0
@@ -192,6 +192,16 @@ set -l noimplicitalloc_status 1
 fish "$_root/scripts/lint/no-implicit-alloc.fish" "$_root/tmp/no-implicit-alloc.ndjson"
 set noimplicitalloc_status $status
 
+# (o.0.3.1) no-global-allocator lint
+set -l noglobalalloc_status 1
+fish "$_root/scripts/lint/no-global-allocator.fish" "$_root/tmp/no-global-allocator.ndjson"
+set noglobalalloc_status $status
+
+# (o.0.3.2) no-to-string lint
+set -l notostring_status 1
+fish "$_root/scripts/lint/no-to-string.fish" "$_root/tmp/no-to-string.ndjson"
+set notostring_status $status
+
 # (o.0.4) no-materialize lint
 set -l nomaterialize_status 1
 fish "$_root/scripts/lint/no-materialize.fish" "$_root/tmp/no-materialize.ndjson"
@@ -258,6 +268,10 @@ fish "$_root/scripts/lint/no-std-fs.fish" "$_root/tmp/no-std-fs.ndjson" >/dev/nu
 set nostdfs_status $status
 fish "$_root/scripts/lint/no-implicit-alloc.fish" "$_root/tmp/no-implicit-alloc.ndjson" >/dev/null 2>&1
 set noimplicitalloc_status $status
+fish "$_root/scripts/lint/no-global-allocator.fish" "$_root/tmp/no-global-allocator.ndjson" >/dev/null 2>&1
+set noglobalalloc_status $status
+fish "$_root/scripts/lint/no-to-string.fish" "$_root/tmp/no-to-string.ndjson" >/dev/null 2>&1
+set notostring_status $status
 fish "$_root/scripts/lint/no-materialize.fish" "$_root/tmp/no-materialize.ndjson" >/dev/null 2>&1
 set nomaterialize_status $status
 

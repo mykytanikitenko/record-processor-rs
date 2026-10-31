@@ -32,6 +32,8 @@ set -a sources no-manual-fmt tmp/no-manual-fmt.ndjson
 set -a sources no-std-io tmp/no-std-io.ndjson
 set -a sources no-std-fs tmp/no-std-fs.ndjson
 set -a sources no-implicit-alloc tmp/no-implicit-alloc.ndjson
+set -a sources no-global-allocator tmp/no-global-allocator.ndjson
+set -a sources no-to-string tmp/no-to-string.ndjson
 set -a sources no-materialize tmp/no-materialize.ndjson
 set -a sources clippy tmp/clippy.json
 
