@@ -151,6 +151,7 @@ impl From<DepositStateParts> for DepositState {
         type LoadDepositError = crate::mocks::MockLoadDepositError;
         type StoreClientError = crate::mocks::MockStoreClientError;
         type StoreDepositError = crate::mocks::MockStoreDepositError;
+        type ClientsError = crate::mocks::MockClientsError;
     )
 )]
 pub trait State {
@@ -162,6 +163,8 @@ pub trait State {
     type StoreClientError: Error;
     /// The error produced by [`State::store_deposit`].
     type StoreDepositError: Error;
+    /// The error produced by [`State::clients`].
+    type ClientsError: Error;
 
     /// Return the account state stored for `client`, or `None` when absent.
     async fn load_client(
@@ -192,6 +195,12 @@ pub trait State {
         state: DepositState,
         cancel: &CancellationToken,
     ) -> Result<(), Self::StoreDepositError>;
+
+    /// Return every stored client, in ascending client order.
+    async fn clients(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<(ClientId, ServiceState)>, Self::ClientsError>;
 }
 
 /// The [`State`] composed over a client store and a deposit store.
@@ -239,6 +248,18 @@ pub enum StoreDepositError<E> {
     Store(E),
 }
 
+/// Failure to enumerate the stored clients.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ClientsError<K, L> {
+    /// The client store failed to enumerate its keys.
+    #[error("enumerating client keys failed: {0}")]
+    Keys(K),
+    /// The client store failed to load a client's state.
+    #[error("loading a client's state failed: {0}")]
+    Load(L),
+}
+
 impl<C, D> State for KvState<'_, C, D>
 where
     C: Kv<ClientId, ServiceState>,
@@ -248,6 +269,7 @@ where
     type LoadDepositError = LoadDepositError<D::LoadError>;
     type StoreClientError = StoreClientError<C::StoreError>;
     type StoreDepositError = StoreDepositError<D::StoreError>;
+    type ClientsError = ClientsError<C::KeysError, C::LoadError>;
 
     #[inline]
     async fn load_client(
@@ -297,5 +319,29 @@ where
             .store(tx, state, cancel)
             .await
             .map_err(StoreDepositError::Store)
+    }
+
+    async fn clients(
+        &self,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<(ClientId, ServiceState)>, Self::ClientsError> {
+        let mut keys = self
+            .clients
+            .keys(cancel)
+            .await
+            .map_err(ClientsError::Keys)?;
+        keys.sort_unstable();
+        let mut clients = Vec::new();
+        for client in keys {
+            if let Some(state) = self
+                .clients
+                .load(client, cancel)
+                .await
+                .map_err(ClientsError::Load)?
+            {
+                clients.push((client, state));
+            }
+        }
+        Ok(clients)
     }
 }

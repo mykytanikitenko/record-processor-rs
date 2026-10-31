@@ -20,6 +20,11 @@ pub struct MockLoadDepositError;
 #[error("mocked deposit state store failure")]
 pub struct MockStoreDepositError;
 
+/// Failure scripted into a mocked [`crate::engine_state::State::clients`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("mocked client enumeration failure")]
+pub struct MockClientsError;
+
 /// Failure scripted into a mocked [`crate::consumer::Consumer::consume`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[error("mocked consume failure")]

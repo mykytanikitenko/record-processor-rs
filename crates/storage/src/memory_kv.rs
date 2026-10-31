@@ -8,6 +8,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::kv::Kv;
 
+/// Failure to enumerate the keys of the in-memory key-value store.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum KeysError {
+    /// The key enumeration was cancelled before the table was read.
+    #[error("key enumeration cancelled")]
+    Cancelled,
+}
+
 /// Failure to load a value from the in-memory key-value store.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
@@ -29,11 +38,16 @@ where
 
 impl<K, V, S, A> MemoryKv<K, V, S, A>
 where
-    K: Eq + Hash,
+    K: Eq + Hash + Clone,
     V: Copy,
     S: BuildHasher,
     A: Allocator,
 {
+    /// Read every key under the table lock.
+    async fn keys_inner(&self) -> Vec<K> {
+        self.table.lock().await.keys().cloned().collect()
+    }
+
     /// Read the value for `key` under the table lock.
     async fn read(&self, key: K) -> Option<V> {
         self.table.lock().await.get(&key).copied()
@@ -63,13 +77,22 @@ where
 
 impl<K, V, S, A> Kv<K, V> for MemoryKv<K, V, S, A>
 where
-    K: Eq + Hash,
+    K: Eq + Hash + Clone,
     V: Copy,
     S: BuildHasher,
     A: Allocator,
 {
+    type KeysError = KeysError;
     type LoadError = LoadError;
     type StoreError = StoreError;
+
+    #[inline]
+    async fn keys(&self, cancel: &CancellationToken) -> Result<Vec<K>, Self::KeysError> {
+        cancel
+            .run_until_cancelled(self.keys_inner())
+            .await
+            .ok_or(KeysError::Cancelled)
+    }
 
     #[inline]
     async fn load(&self, key: K, cancel: &CancellationToken) -> Result<Option<V>, Self::LoadError> {
