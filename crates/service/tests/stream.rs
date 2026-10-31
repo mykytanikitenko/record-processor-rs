@@ -24,7 +24,7 @@ mod tests {
         type Error = Infallible;
 
         async fn next_batch<'stream>(
-            &'stream self,
+            &'stream mut self,
             _cancel: &CancellationToken,
         ) -> Result<Option<&'stream [Transaction]>, Self::Error> {
             Ok(Some(&self.rows))
@@ -76,13 +76,13 @@ mod tests {
     async fn transactions_yield_the_appended_batch(
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let source = TransactionSource {
+        let mut source = TransactionSource {
             rows: vec![deposit(1, 1, "1.5")?, deposit(2, 2, "2.0")?],
         };
-        let expected = source.rows.as_slice();
         let batch = source.next_batch(&CancellationToken::new()).await;
+        let expected = [deposit(1, 1, "1.5")?, deposit(2, 2, "2.0")?];
         anyhow::ensure!(
-            matches!(batch, Ok(Some(rows)) if rows == expected),
+            matches!(batch, Ok(Some(rows)) if rows == expected.as_slice()),
             "unexpected batch {batch:?}"
         );
         Ok(())

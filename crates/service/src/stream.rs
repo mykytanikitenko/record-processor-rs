@@ -9,7 +9,8 @@ use tokio_util::sync::CancellationToken;
 /// A source of transaction batches, read in place from the backing storage.
 ///
 /// A batch borrows the stream's own storage, so callers read records without
-/// copying them. Cancellation is cooperative: the caller passes a
+/// copying them. Advancing the stream mutates its cursor, so `next_batch`
+/// takes `&mut self`. Cancellation is cooperative: the caller passes a
 /// [`CancellationToken`]; once it fires the stream yields a typed error item.
 pub trait Transactions {
     /// The error produced while reading the next batch.
@@ -18,7 +19,7 @@ pub trait Transactions {
     /// Return the next batch of transactions, or `None` once the stream is
     /// exhausted.
     async fn next_batch<'stream>(
-        &'stream self,
+        &'stream mut self,
         cancel: &CancellationToken,
     ) -> Result<Option<&'stream [Transaction]>, Self::Error>;
 }
