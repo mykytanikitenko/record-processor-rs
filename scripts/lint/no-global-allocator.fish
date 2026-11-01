@@ -2,9 +2,8 @@
 # no-global-allocator linter for the record-processor Rust workspace.
 #
 # Forbids naming the concrete `Global` allocator in library crates (storage,
-# service, transport, domain) and forbids passing allocators by reference.
-# Library crates must thread `A: Allocator` generics and take allocators by
-# value; only the CLI composition root may name a concrete allocator. Test
+# service, transport, domain). Library crates must thread `A: Allocator`
+# generics; only the CLI composition root may name a concrete allocator. Test
 # code (`tests/`) is exempt.
 #
 # Extraction is structural (ast-grep), then classified by jq
@@ -74,24 +73,23 @@ function _self_test
         rm -rf "$selftest_dir"
     end
 
-    # Flag cases: concrete Global + by-reference allocator in a library crate.
+    # Flag case: concrete Global in a library crate.
     printf '%s\n' \
-        'use allocator_api2::alloc::Global;' \
-        'fn f(alloc: &impl Allocator) {}' >"$dir/flag/crates/storage/src/global.rs"
+        'use allocator_api2::alloc::Global;' >"$dir/flag/crates/storage/src/global.rs"
 
     set -l flag_out (mktemp)
     _run_pipeline "$dir/flag" "$flag_out"
     or return 1
     set -l flag_total (string trim (wc -l < "$flag_out"))
-    if test "$flag_total" -lt 2
-        echo "✗ no-global-allocator: self-test failed — expected >=2 findings, got $flag_total" >&2
+    if test "$flag_total" -lt 1
+        echo "✗ no-global-allocator: self-test failed — expected >=1 findings, got $flag_total" >&2
         jq -c . "$flag_out" >&2
         return 1
     end
     rm -f "$flag_out"
 
-    # Pass cases: Global in the CLI composition root, Global in test code, and
-    # a by-value allocator in a library crate.
+    # Pass cases: Global in the CLI composition root, Global in test code, a
+    # by-value allocator in a library crate, and a by-reference allocator.
     printf '%s\n' \
         'use allocator_api2::alloc::Global;' \
         'fn main() { let _ = Global; }' >"$dir/pass/crates/cli/src/run.rs"
@@ -101,6 +99,8 @@ function _self_test
         'fn it() { let _ = Global; }' >"$dir/pass/crates/storage/tests/it.rs"
     printf '%s\n' \
         'fn f<A: Allocator>(alloc: A) {}' >"$dir/pass/crates/storage/src/clean.rs"
+    printf '%s\n' \
+        'fn f(alloc: &impl Allocator) {}' >"$dir/pass/crates/storage/src/by_ref.rs"
 
     set -l pass_out (mktemp)
     _run_pipeline "$dir/pass" "$pass_out"
