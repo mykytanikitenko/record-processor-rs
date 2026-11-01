@@ -42,6 +42,9 @@ allocator-api2 = { version = "=0.2.21", default-features = false, features = [
   "std",
 ] }
 anyhow = { version = "=1.0.104", default-features = false, features = ["std"] }
+bumpalo = { version = "=3.20.3", default-features = false, features = [
+  "allocator-api2",
+] }
 cli = { path = "crates/cli", default-features = false, features = [] }
 compio = { version = "=0.19.2", default-features = false, features = [
   "runtime",
