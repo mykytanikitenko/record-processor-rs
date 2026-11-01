@@ -33,11 +33,11 @@ where
 
     /// Drain every transaction batch, applying each record to engine state,
     /// then return a lazy stream of the resulting per-client balances.
-    async fn consume(
+    fn consume(
         self,
         cancel: &CancellationToken,
         transactions: &mut T,
-    ) -> Result<Self::Balances, Self::ConsumeError>;
+    ) -> impl Future<Output = Result<Self::Balances, Self::ConsumeError>>;
 }
 
 /// The account-balance rows a consumer projects, yielded one row at a time.
