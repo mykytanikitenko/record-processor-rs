@@ -37,6 +37,203 @@ Output columns:
 Amounts are written in their shortest decimal form (no fixed four-place
 padding): `1.5`, not `1.5000`.
 
+## For reviewers
+
+A walk through the architecture and the choices that shape it, so a review can
+find the interesting parts fast. The codebase is small and strict: every
+boundary is a trait, every fallible call has its own typed error, and no domain
+value is ever cloned into an owned `String` or collected into a `Vec`.
+
+### What it does
+
+One streaming pipeline: read a CSV of transactions, apply each to a per-client
+account, write one balance row per client to stdout. Records move through the
+system as borrowed slices, and account state is persisted to memory-mapped
+files as it is computed — no batch of the whole file ever lives on the heap.
+
+### Layering and dependency direction
+
+Dependencies point one way, and every layer is generic over the layer below it:
+
+```text
+domain ← storage ← service ← transport ← cli
+```
+
+- **domain** (`crates/domain`) — the value types: `Transaction`, `TxId`,
+  `ClientId`, `Amount`, `AccountBalance`. It depends on nothing in the
+  workspace. Money is `rust_decimal::Decimal`; floats never touch an amount.
+- **storage** (`crates/storage`) — persistence only. The `Queue<T>` and
+  `Kv<K, V>` contracts and their in-memory and file-backed implementations.
+  It stores opaque `Copy` records and decides nothing about payments.
+- **service** (`crates/service`) — every business rule. `Consumer` drains a
+  transaction stream into engine state and projects balances. It is generic
+  over `Q: Queue<Transaction>` and `S: State`, so it does not know whether the
+  queue is a `Vec` or an mmap.
+- **transport** (`crates/transport`) — stdio I/O only: a hand-written CSV
+  reader and a balance writer, adapted to the slice streams the service
+  consumes.
+- **cli** (`crates/cli`) — the composition root. It builds the file-backed
+  stores, wires them into the engine, and drives `transport::serve`.
+
+Each boundary exists to keep one concern from leaking across it: storage stays
+free of business logic (the engine's *input* state is service-owned for exactly
+this reason — see the module doc in `crates/service/src/engine_state.rs`), the
+service never touches I/O, and the transport never touches account arithmetic.
+Because everything is generic, tests can swap a real backing for a mock at any
+seam.
+
+### Storage: an append-only queue and a key-value store
+
+Two contracts, each with an in-memory and a memory-mapped backing:
+
+- **`Queue<T>`** (`crates/storage/src/queue.rs`) — `append(&[T]) -> Offset`
+  appends a batch at the tail; `next_batch(Offset) -> &[T]` returns the records
+  from that offset as a slice *borrowing the queue's own storage*. Records are
+  read in place, never copied out.
+- **`Kv<K, V>`** (`crates/storage/src/kv.rs`) — `load(K) -> Option<V>`,
+  `next_key(Option<K>)`, `store(K, V)`. `next_key` is the lazy cursor that
+  walks clients in ascending order for balance projection.
+
+Both take `&self` and use interior mutability, so a producer and its readers
+share one store by reference. The single-threaded runtime means no locks.
+
+The backings:
+
+- **`MemoryQueue`** — records live in segments, one per appended batch,
+  allocated at exact length in the caller's `A: Allocator`. A published record
+  never moves, which is what lets `next_batch` hand out a borrowing slice. A
+  fixed 32-level directory addresses segments by offset.
+- **`MemoryKv`** — a `hashbrown::HashMap` in the caller's allocator.
+- **`FileQueue`** — a single `mmap` region reserved once at a fixed capacity
+  and never remapped. Appends copy records into the tail; `next_batch`
+  reinterprets the published range as `&[T]` from the stable base pointer. The
+  only `unsafe` is the mapping and the typed reinterpretation of its bytes,
+  both confined to this module with `SAFETY` notes.
+- **`FileKv`** — an append-only mmap log of `(key, value)` records plus an
+  in-memory `HashMap<K, usize>` index of byte offsets. An overwrite appends a
+  fresh record and repoints the key, leaving the superseded bytes in place;
+  `load` reads the indexed record straight out of the mapping.
+
+The file backings are `TryFrom<Parts>` and reject a record type whose alignment
+exceeds the page size rather than guessing. The allocator is an explicit
+`A: Allocator` throughout; the CLI names the concrete one (`Global`) and the
+library crates stay generic.
+
+### Service: the engine rules
+
+`Consumer::consume` (`crates/service/src/consumer.rs`) drains the transaction
+stream into the queue, replays the queue through `Engine::apply`, and returns a
+lazy `BalanceStream` that projects one `AccountBalance` per client on demand.
+`Transactions` and `Balances` (`crates/service/src/stream.rs`) are slice
+streams — `next_batch` returns `Option<&[T]>` — so no materialized row vector
+ever exists.
+
+The rules, all overflow-checked and driven by an explicit lifecycle
+(`TxKind`/`TxStatus` in `crates/service/src/engine_state.rs`):
+
+- **deposit** credits `available`; a first reference creates the account. A
+  reused transaction id keeps the first recorded lifecycle but the later row is
+  still credited.
+- **withdrawal** records the transaction (even one that will fail), then debits
+  `available`; insufficient funds is a no-op that leaves the record in place so
+  later events can reference it.
+- **dispute** holds the amount (`available` → `held`) only for a `Deposit`
+  whose lifecycle is `Available` and whose recorded client matches. Unknown
+  tx, a withdrawal, a mismatched client, or an already-disputed deposit is
+  ignored.
+- **resolve** releases a `Disputed` deposit back to `available`.
+- **chargeback** reverses a `Disputed` deposit, releases the hold, and locks
+  the account.
+
+Every reference action checks kind, client, and status before moving money, so
+the edge cases (dispute a withdrawal, double dispute, dispute after chargeback)
+fall out as no-ops instead of special cases. Failed-transaction bookkeeping is
+the `TxRecord` itself: a failed withdrawal still exists in the transaction
+store.
+
+### Transport: stdio CSV, hand-written
+
+`transport::serve` (`crates/transport/src/stdio.rs`) adapts the CSV reader into
+the `Transactions` slice stream, drives the consumer, and writes the projected
+balances to stdout.
+
+The reader (`crates/transport/src/reader.rs`) is hand-written, and the record
+loop carries a 1-based line number into every `RecordError`: a malformed
+amount, an out-of-range id, a missing column, or an unknown `type` fails with
+the offending line and the raw field text, and the run aborts (fail-loud,
+nothing on stdout).
+
+The stdout sink (`crates/transport/src/stdout.rs`) fixes a real footgun:
+compio's `polling` driver registers stdout with epoll, which rejects regular
+files with `EPERM`, so shell redirection (`> accounts.csv`) would fail while
+piping works. The sink inspects `/proc/self/fd/1`: a regular file is written
+positionally through a `File` (no epoll), a pipe or tty keeps the epoll-backed
+`Stdout`.
+
+### Correctness and robustness
+
+- **Zero-copy and borrow discipline.** Domain types are borrowed or `Copy`;
+  there is no `String`/`Vec` of a domain type in the pipeline. `next_batch`
+  and both slice streams return `&[T]`, and the file backings back those
+  borrows with a stable, never-remapped mmap.
+- **One error type per function.** Every fallible operation owns its `thiserror`
+  enum in the same file; errors compose with `#[from]`/`#[source]`, so a
+  failure names the operation that produced it end to end.
+- **No silent fallbacks.** A malformed row aborts the run. There are no
+  `unwrap`/`expect`, no `unwrap_or`-style defaults, no indexing, and no lint
+  suppressions — each is banned by a lint rather than left to convention.
+- **Cooperative cancellation.** Every operation takes a `&CancellationToken`
+  and races `run_until_cancelled`; the CLI selects SIGINT/SIGTERM against the
+  pipeline, so a cancelled run shuts down cleanly instead of leaking a partial
+  write.
+- **Thread-per-core.** The compio runtime is single-threaded; shared stores
+  use `RefCell` interior mutability, so there are no mutexes and no lock
+  contention in the hot path.
+
+### The lint discipline
+
+`just lint` runs `clippy` with every group denied (including `restriction`)
+plus ast-grep rules that enforce one invariant each by construction:
+
+- `no-std-io` / `no-std-fs` — no blocking `std::io`/`std::fs` in library code;
+  all I/O is async compio.
+- `no-implicit-alloc` — no `Vec::new`/`vec![]`/`.collect`/`format!`/`Box::new`
+  in production code; allocation is explicit.
+- `no-global-allocator` — library crates never name `Global` and never take an
+  allocator by reference; they thread `A: Allocator` by value.
+- `no-materialize` — no `Vec<D>`/`Box<[D]>` of a domain type; records stream
+  through borrowed slices.
+- `no-to-string` / `no-new-get` — no `.to_string()` on domain values; no `new`
+  constructor (use `TryFrom`/`From`) and no `get`/`get_*` getter (use
+  `derive_more::Deref`).
+- `no-static-lifetime` — the `'static` token is banned; real lifetimes are
+  named.
+- `shared-error-types` — one error enum per fallible function, never reused
+  across two operations.
+- `no-fallbacks` — no silent fallback, error discard, unchecked arithmetic,
+  cloning, or error-source loss.
+- `no-suppressions` — no `#[allow]`/`#[expect]` anywhere.
+- `panic` — no `unwrap`/`expect`/indexing that can panic.
+
+### Testing
+
+Three layers, all run through `just test` (the `rudzio` runner under a coverage
+gate):
+
+- **Unit** — `crates/service/tests` drives the engine against `mockall` doubles
+  of the storage traits; `crates/storage` unit-tests the in-memory backings.
+- **Integration** — `crates/storage/tests` exercises the real file/mmap
+  backings against the filesystem, including capacity and cancellation paths.
+- **End-to-end** — `tests/e2e` runs the compiled binary over 89 fixture cases
+  (`tests/e2e/fixtures/<NNN-name>/`, each with `input.csv`, `expected.csv`,
+  `case.toml`): the spec example, every transaction kind, boundary ids (`u16`/
+  `u32` max and zero), whitespace and decimal precision, header-only input, and
+  the malformed-row cases. Output is compared as a **multiset** — row order is
+  unspecified but multiplicity matters — with value-based `Decimal` equality,
+  so `1.5` matches `1.5000`.
+
+Run `just lint` and `just test`; both are wired into the pre-commit hook.
+
 ## Approach
 
 How the project is put together:
