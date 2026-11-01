@@ -10,12 +10,10 @@
 //! reinterpretation of its bytes as `[T]`; both are confined to this module
 //! and documented with `SAFETY` notes.
 
-// The mapping's bytes are reinterpreted as `[T]` via raw pointers; this is the
-// single, well-documented unsafe boundary of the storage crate.
-#![allow(
-    unsafe_code,
-    reason = "raw memory-mapped bytes are reinterpreted as [T]"
-)]
+// The raw memory-mapped bytes are reinterpreted as `[T]` via raw pointers; this
+// module is the single, well-documented unsafe boundary of the storage crate.
+// The memory mapping cannot be established without `unsafe`, permitted by the
+// root `[workspace.lints.rust]` table.
 
 use core::cell::RefCell;
 use core::marker::PhantomData;
@@ -57,7 +55,7 @@ pub enum OpenError {
 /// Failure to append a batch to the file-backed queue.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
-pub enum AppendError {
+pub enum FileAppendError {
     /// The append was cancelled before it published the batch.
     #[error("append cancelled")]
     Cancelled,
@@ -72,19 +70,19 @@ pub enum AppendError {
 /// Failure to read the next batch from the file-backed queue.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
-pub enum NextBatchError {
+pub enum FileNextBatchError {
     /// The wait for records was cancelled.
     #[error("next batch cancelled")]
     Cancelled,
     /// The published records could not be located.
     #[error(transparent)]
-    Find(#[from] FindError),
+    Find(#[from] FileFindError),
 }
 
 /// Failure to locate the segment holding an offset.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
-pub enum FindError {
+pub enum FileFindError {
     /// The search bounds overflowed.
     #[error("segment search overflowed")]
     Overflow,
@@ -121,7 +119,7 @@ where
 {
     /// Return the records from `since` to the end of its segment, or `None`
     /// when `since` is at or past the published tail.
-    fn find(&self, since: Offset, tail: u64) -> Result<Option<&[T]>, FindError> {
+    fn find(&self, since: Offset, tail: u64) -> Result<Option<&[T]>, FileFindError> {
         let start = *since;
         if start >= tail {
             return Ok(None);
@@ -129,16 +127,17 @@ where
         let starts = self.starts.borrow();
         let segment = starts.partition_point(|&segment_start| segment_start <= start);
         // `segment >= 1` because the first published segment starts at zero.
-        let end = match starts.get(segment) {
-            Some(&next) => next,
-            None => tail,
+        let end = if let Some(&next) = starts.get(segment) {
+            next
+        } else {
+            tail
         };
-        let len_u64 = end.checked_sub(start).ok_or(FindError::Overflow)?;
-        let len = usize::try_from(len_u64).map_err(|_overflow| FindError::Overflow)?;
+        let len_u64 = end.checked_sub(start).ok_or(FileFindError::Overflow)?;
+        let len = usize::try_from(len_u64).map_err(|_overflow| FileFindError::Overflow)?;
         let start_bytes = usize::try_from(start)
-            .map_err(|_overflow| FindError::Overflow)?
+            .map_err(|_overflow| FileFindError::Overflow)?
             .checked_mul(size_of::<T>())
-            .ok_or(FindError::Overflow)?;
+            .ok_or(FileFindError::Overflow)?;
         // SAFETY: `start..end` is a published, file-backed range inside the
         // mapping, so its bytes are initialized and valid for `len` `T`s. The
         // base pointer is stable (the mapping is never remapped) and is aligned
@@ -155,27 +154,27 @@ where
 
     /// Publish `batch` at the tail of the mapping.
     /// Publish `batch` at the tail of the mapping.
-    async fn publish(&self, batch: &[T]) -> Result<Offset, AppendError> {
+    async fn publish(&self, batch: &[T]) -> Result<Offset, FileAppendError> {
         let mut tail = self.tail.borrow_mut();
         let start = *tail;
         if batch.is_empty() {
             return Ok(Offset::from(start));
         }
-        let count = u64::try_from(batch.len()).map_err(|_overflow| AppendError::Overflow)?;
-        let end = start.checked_add(count).ok_or(AppendError::Overflow)?;
+        let count = u64::try_from(batch.len()).map_err(|_overflow| FileAppendError::Overflow)?;
+        let end = start.checked_add(count).ok_or(FileAppendError::Overflow)?;
         let byte_count = batch
             .len()
             .checked_mul(size_of::<T>())
-            .ok_or(AppendError::Overflow)?;
+            .ok_or(FileAppendError::Overflow)?;
         let start_bytes = usize::try_from(start)
-            .map_err(|_overflow| AppendError::Overflow)?
+            .map_err(|_overflow| FileAppendError::Overflow)?
             .checked_mul(size_of::<T>())
-            .ok_or(AppendError::Overflow)?;
+            .ok_or(FileAppendError::Overflow)?;
         let end_bytes = start_bytes
             .checked_add(byte_count)
-            .ok_or(AppendError::Overflow)?;
+            .ok_or(FileAppendError::Overflow)?;
         if end_bytes > self.capacity {
-            return Err(AppendError::Capacity);
+            return Err(FileAppendError::Capacity);
         }
         // SAFETY: the destination range `[start_bytes, end_bytes)` lies within
         // the mapping (checked above) and is aligned for `T`; the source is the
@@ -200,7 +199,7 @@ where
 
     /// Wait until the record at `since` is published and return its slice.
     /// Wait until the record at `since` is published and return its slice.
-    async fn wait(&self, since: Offset) -> Result<&[T], NextBatchError> {
+    async fn wait(&self, since: Offset) -> Result<&[T], FileNextBatchError> {
         loop {
             let listener = self.appended.listen();
             let tail = *self.tail.borrow();
@@ -254,8 +253,8 @@ where
     T: Copy,
     A: Allocator + Copy,
 {
-    type AppendError = AppendError;
-    type NextBatchError = NextBatchError;
+    type AppendError = FileAppendError;
+    type NextBatchError = FileNextBatchError;
 
     #[inline]
     async fn append(
@@ -266,7 +265,7 @@ where
         cancel
             .run_until_cancelled(self.publish(batch))
             .await
-            .ok_or(AppendError::Cancelled)?
+            .ok_or(FileAppendError::Cancelled)?
     }
 
     #[inline]
@@ -281,7 +280,7 @@ where
         cancel
             .run_until_cancelled(self.wait(since))
             .await
-            .ok_or(NextBatchError::Cancelled)?
+            .ok_or(FileNextBatchError::Cancelled)?
     }
 }
 

@@ -7,7 +7,7 @@ use rudzio::runtime::compio::Runtime;
 mod tests {
     use allocator_api2::alloc::Global;
     use futures_util::future::join;
-    use storage::memory_queue::{AppendError, NextBatchError, Parts};
+    use storage::memory_queue::{MemoryAppendError, MemoryNextBatchError, Parts};
     use storage::{MemoryQueue, Offset, Queue as _};
     use tokio_util::sync::CancellationToken;
 
@@ -107,7 +107,7 @@ mod tests {
         cancel.cancel();
         let appended = queue.append(&[1], &cancel).await;
         anyhow::ensure!(
-            appended == Err(AppendError::Cancelled),
+            appended == Err(MemoryAppendError::Cancelled),
             "expected Cancelled, got {appended:?}"
         );
         Ok(())
@@ -124,7 +124,7 @@ mod tests {
         })
         .await;
         anyhow::ensure!(
-            batch == Err(NextBatchError::Cancelled),
+            batch == Err(MemoryNextBatchError::Cancelled),
             "expected Cancelled, got {batch:?}"
         );
         Ok(())

@@ -26,7 +26,7 @@ const LEVELS: usize = 32;
 /// Failure to append a batch to the in-memory queue.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
-pub enum AppendError {
+pub enum MemoryAppendError {
     /// The segment or directory level could not be allocated.
     #[error("queue allocation failed: {0}")]
     Alloc(#[from] TryReserveError),
@@ -50,7 +50,7 @@ pub enum AppendError {
 /// Failure to find the segment holding an offset.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
-pub enum FindError {
+pub enum MemoryFindError {
     /// The search bounds overflowed.
     #[error("segment search overflowed")]
     Overflow,
@@ -83,15 +83,17 @@ where
 {
     /// Return the records from `since` to the end of its segment, or `None`
     /// when `since` is at or past the published tail.
-    fn find(&self, since: Offset, published: u64) -> Result<Option<&[T]>, FindError> {
+    fn find(&self, since: Offset, published: u64) -> Result<Option<&[T]>, MemoryFindError> {
         let mut low = 0_u64;
         let mut high = published;
         while low < high {
-            let span = high.checked_sub(low).ok_or(FindError::Overflow)?;
-            let middle = low.checked_add(span >> 1).ok_or(FindError::Overflow)?;
+            let span = high.checked_sub(low).ok_or(MemoryFindError::Overflow)?;
+            let middle = low
+                .checked_add(span >> 1)
+                .ok_or(MemoryFindError::Overflow)?;
             let segment = self.segment(middle)?;
             if segment.start <= since {
-                low = middle.checked_add(1).ok_or(FindError::Overflow)?;
+                low = middle.checked_add(1).ok_or(MemoryFindError::Overflow)?;
             } else {
                 high = middle;
             }
@@ -102,8 +104,8 @@ where
         let segment = self.segment(last)?;
         let skip_u64 = since
             .checked_sub(*segment.start)
-            .ok_or(FindError::Overflow)?;
-        let skip = usize::try_from(skip_u64).map_err(|_overflow| FindError::Overflow)?;
+            .ok_or(MemoryFindError::Overflow)?;
+        let skip = usize::try_from(skip_u64).map_err(|_overflow| MemoryFindError::Overflow)?;
         Ok(segment
             .records
             .get(skip..)
@@ -129,31 +131,35 @@ where
     A: Allocator + Copy,
 {
     /// Publish `batch` as the next segment under the append borrow.
-    async fn publish(&self, batch: &[T]) -> Result<Offset, AppendError> {
+    async fn publish(&self, batch: &[T]) -> Result<Offset, MemoryAppendError> {
         let mut tail = self.tail.borrow_mut();
         let start = tail.next;
         if batch.is_empty() {
             return Ok(Offset::from(start));
         }
-        let length = u64::try_from(batch.len()).map_err(|_overflow| AppendError::Overflow)?;
-        let next = start.checked_add(length).ok_or(AppendError::Overflow)?;
+        let length = u64::try_from(batch.len()).map_err(|_overflow| MemoryAppendError::Overflow)?;
+        let next = start
+            .checked_add(length)
+            .ok_or(MemoryAppendError::Overflow)?;
         let number = tail.segments;
-        let segments = number.checked_add(1).ok_or(AppendError::Overflow)?;
+        let segments = number.checked_add(1).ok_or(MemoryAppendError::Overflow)?;
         let slot = Slot::try_from(number)?;
         let level = self
             .levels
             .get(slot.level)
-            .ok_or(AppendError::Occupied { segment: number })?;
+            .ok_or(MemoryAppendError::Occupied { segment: number })?;
         if level.get().is_none() {
             let width = 1_usize
-                .checked_shl(u32::try_from(slot.level).map_err(|_overflow| AppendError::Overflow)?)
-                .ok_or(AppendError::Overflow)?;
+                .checked_shl(
+                    u32::try_from(slot.level).map_err(|_overflow| MemoryAppendError::Overflow)?,
+                )
+                .ok_or(MemoryAppendError::Overflow)?;
             let mut slots = Vec::new_in(self.alloc);
             slots.try_reserve_exact(width)?;
             slots.resize_with(width, OnceLock::new);
             level
                 .set(slots)
-                .map_err(|_level| AppendError::Occupied { segment: number })?;
+                .map_err(|_level| MemoryAppendError::Occupied { segment: number })?;
         }
         let mut records = Vec::new_in(self.alloc);
         records.try_reserve_exact(batch.len())?;
@@ -165,9 +171,9 @@ where
         level
             .get()
             .and_then(|slots| slots.get(slot.index))
-            .ok_or(AppendError::Occupied { segment: number })?
+            .ok_or(MemoryAppendError::Occupied { segment: number })?
             .set(segment)
-            .map_err(|_segment| AppendError::Occupied { segment: number })?;
+            .map_err(|_segment| MemoryAppendError::Occupied { segment: number })?;
         tail.segments = segments;
         tail.next = next;
         drop(tail);
@@ -177,7 +183,7 @@ where
     }
 
     /// Wait until the record at `since` is published and return its slice.
-    async fn wait(&self, since: Offset) -> Result<&[T], NextBatchError> {
+    async fn wait(&self, since: Offset) -> Result<&[T], MemoryNextBatchError> {
         loop {
             let listener = self.appended.listen();
             let published = self.published.load(Ordering::Acquire);
@@ -211,13 +217,13 @@ where
 /// Failure to read the next batch from the in-memory queue.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
-pub enum NextBatchError {
+pub enum MemoryNextBatchError {
     /// The wait for records was cancelled.
     #[error("next batch cancelled")]
     Cancelled,
     /// The published segments could not be searched.
     #[error(transparent)]
-    Find(#[from] FindError),
+    Find(#[from] MemoryFindError),
 }
 
 /// Construction input for [`MemoryQueue`].
@@ -232,8 +238,8 @@ where
     T: Copy,
     A: Allocator + Copy,
 {
-    type AppendError = AppendError;
-    type NextBatchError = NextBatchError;
+    type AppendError = MemoryAppendError;
+    type NextBatchError = MemoryNextBatchError;
 
     #[inline]
     async fn append(
@@ -244,7 +250,7 @@ where
         cancel
             .run_until_cancelled(self.publish(batch))
             .await
-            .ok_or(AppendError::Cancelled)?
+            .ok_or(MemoryAppendError::Cancelled)?
     }
 
     #[inline]
@@ -259,7 +265,7 @@ where
         cancel
             .run_until_cancelled(self.wait(since))
             .await
-            .ok_or(NextBatchError::Cancelled)?
+            .ok_or(MemoryNextBatchError::Cancelled)?
     }
 }
 

@@ -21,7 +21,7 @@ mod tests {
     use allocator_api2::alloc::Global;
     use futures_util::future::join;
     use std::path::PathBuf;
-    use storage::file_queue::{AppendError, NextBatchError, Parts};
+    use storage::file_queue::{FileAppendError, FileNextBatchError, Parts};
     use storage::{FileQueue, Offset, Queue as _};
     use tokio_util::sync::CancellationToken;
 
@@ -141,7 +141,7 @@ mod tests {
         cancel.cancel();
         let appended = queue.append(&[1], &cancel).await;
         anyhow::ensure!(
-            appended == Err(AppendError::Cancelled),
+            appended == Err(FileAppendError::Cancelled),
             "expected Cancelled, got {appended:?}"
         );
         compio::fs::remove_file(&backing).await?;
@@ -159,7 +159,7 @@ mod tests {
         })
         .await;
         anyhow::ensure!(
-            batch == Err(NextBatchError::Cancelled),
+            batch == Err(FileNextBatchError::Cancelled),
             "expected Cancelled, got {batch:?}"
         );
         compio::fs::remove_file(&backing).await?;
