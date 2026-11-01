@@ -8,8 +8,7 @@ use service::engine_state::KvState;
 use service::{ClientId, EngineParts, ServiceState, State, Transaction, TxId, TxRecord};
 use std::hash::RandomState;
 use storage::file_kv::{
-    FileKv, FileKvLoadError, FileKvNextKeyError, FileKvOpenError, FileKvStoreError,
-    Parts as FileKvParts,
+    EnumerateError, FetchError, FileKv, MapError, Parts as FileKvParts, WriteError,
 };
 use storage::file_queue::{FileQueue, OpenError, Parts as FileQueueParts};
 use tokio_util::sync::CancellationToken;
@@ -51,11 +50,11 @@ struct MemoryState {
 }
 
 impl State for MemoryState {
-    type ClientsError = service::ClientsError<FileKvNextKeyError, FileKvLoadError>;
-    type LoadClientError = service::LoadClientError<FileKvLoadError>;
-    type LoadTxError = service::LoadTxError<FileKvLoadError>;
-    type StoreClientError = service::StoreClientError<FileKvStoreError>;
-    type StoreTxError = service::StoreTxError<FileKvStoreError>;
+    type ClientsError = service::ClientsError<EnumerateError, FetchError>;
+    type LoadClientError = service::LoadClientError<FetchError>;
+    type LoadTxError = service::LoadTxError<FetchError>;
+    type StoreClientError = service::StoreClientError<WriteError>;
+    type StoreTxError = service::StoreTxError<WriteError>;
 
     #[inline]
     async fn load_client(
@@ -180,12 +179,12 @@ pub enum ProcessError {
     /// Opening or sizing a backing file failed.
     #[error("opening or sizing a backing file failed: {0}")]
     Backing(#[from] BackingFileError),
+    /// Opening a memory-mapped key-value store failed.
+    #[error("opening a key-value store failed: {0}")]
+    Kv(#[source] MapError),
     /// Opening the memory-mapped transaction queue failed.
     #[error("opening the transaction queue failed: {0}")]
     Queue(#[source] OpenError),
-    /// Opening a memory-mapped key-value store failed.
-    #[error("opening a key-value store failed: {0}")]
-    Kv(#[source] FileKvOpenError),
     /// Serving the transaction stream through the engine failed.
     #[error("serving the transaction stream failed: {0}")]
     Serve(#[source] Box<dyn std::error::Error + Send + Sync>),

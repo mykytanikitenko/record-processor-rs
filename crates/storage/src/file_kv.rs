@@ -37,10 +37,28 @@ use crate::kv::Kv;
 /// most this value is always correctly aligned inside the mapping.
 const MIN_PAGE_ALIGN: usize = 4096;
 
+/// Failure to enumerate the keys of the file-backed key-value store.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum EnumerateError {
+    /// The key enumeration was cancelled before the index was read.
+    #[error("key enumeration cancelled")]
+    Cancelled,
+}
+
+/// Failure to load a value from the file-backed key-value store.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum FetchError {
+    /// The load was cancelled before the index was read.
+    #[error("load cancelled")]
+    Cancelled,
+}
+
 /// Failure to open the file-backed key-value store.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum FileKvOpenError {
+pub enum MapError {
     /// The backing file could not be mapped.
     #[error("mapping the backing file failed: {0}")]
     Mmap(#[from] std::io::Error),
@@ -54,19 +72,10 @@ pub enum FileKvOpenError {
     },
 }
 
-/// Failure to load a value from the file-backed key-value store.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[non_exhaustive]
-pub enum FileKvLoadError {
-    /// The load was cancelled before the index was read.
-    #[error("load cancelled")]
-    Cancelled,
-}
-
 /// Failure to store a value in the file-backed key-value store.
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 #[non_exhaustive]
-pub enum FileKvStoreError {
+pub enum WriteError {
     /// The index could not grow to hold the new key.
     #[error("key-value index allocation failed: {0}")]
     Alloc(#[from] hashbrown::TryReserveError),
@@ -79,15 +88,6 @@ pub enum FileKvStoreError {
     /// The byte cursor overflowed.
     #[error("key-value store offset overflowed")]
     Overflow,
-}
-
-/// Failure to enumerate the keys of the file-backed key-value store.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
-#[non_exhaustive]
-pub enum FileKvNextKeyError {
-    /// The key enumeration was cancelled before the index was read.
-    #[error("key enumeration cancelled")]
-    Cancelled,
 }
 
 /// The file-backed key-value store, memory-mapping a fixed reservation.
@@ -106,10 +106,10 @@ where
     capacity: usize,
     /// The byte cursor of the next record append.
     cursor: RefCell<usize>,
-    /// Marks the record type the byte mapping is interpreted as.
-    marker: PhantomData<(K, V)>,
     /// The index mapping each key to the byte offset of its latest record.
     index: RefCell<HashMap<K, usize, S, A>>,
+    /// Marks the record type the byte mapping is interpreted as.
+    marker: PhantomData<(K, V)>,
 }
 
 impl<K, V, S, A> FileKv<K, V, S, A>
@@ -122,18 +122,19 @@ where
     /// Read the value stored for `key` under the index borrow.
     async fn read(&self, key: K) -> Option<V> {
         let offset = self.index.borrow().get(&key).copied()?;
-        // SAFETY: `offset` is a byte offset recorded by `write` for a previous
-        // append; it is a multiple of `size_of::<(K, V)>()`, lies within the
-        // mapping, and is aligned for `(K, V)` (page-aligned base). The bytes
-        // there are initialized (written by `write`) and never mutated in place
-        // (overwrites append a fresh record), so the read does not alias any
-        // live mutable reference.
-        let record = unsafe { self.base.add(offset).cast::<(K, V)>().read() };
+        // SAFETY: `base` is a stable, aligned pointer into the file-backed
+        // mapping, and `offset` is a byte offset recorded by `write` that lies
+        // within it.
+        let ptr = unsafe { self.base.add(offset) }.cast::<(K, V)>();
+        // SAFETY: `ptr` points at an initialized, correctly-aligned `(K, V)`
+        // record (written by `write` and never mutated in place), so reading it
+        // does not alias any live mutable reference.
+        let record = unsafe { ptr.read() };
         Some(record.1)
     }
 
     /// Append `(key, value)` and repoint `key` at its new record.
-    async fn write(&self, key: K, value: V) -> Result<(), FileKvStoreError> {
+    async fn write(&self, key: K, value: V) -> Result<(), WriteError> {
         let record_size = size_of::<(K, V)>();
         let mut index = self.index.borrow_mut();
         index.try_reserve(1)?;
@@ -141,22 +142,21 @@ where
         let offset = *cursor;
         let next = offset
             .checked_add(record_size)
-            .ok_or(FileKvStoreError::Overflow)?;
+            .ok_or(WriteError::Overflow)?;
         if next > self.capacity {
-            return Err(FileKvStoreError::Capacity);
+            return Err(WriteError::Capacity);
         }
         let record = (key, value);
-        // SAFETY: `src` points at the local `record`; `dst` points at the
+        // SAFETY: `base` is a stable, aligned pointer into the file-backed
+        // mapping, and `offset` is the unpublished tail.
+        let dst = unsafe { self.base.add(offset) };
+        let src = core::ptr::from_ref(&record).cast::<u8>();
+        // SAFETY: `src` points at the local `record` and `dst` points at the
         // unpublished tail `[offset, next)` of the mapping, which lies within
-        // the reservation (checked above) and is aligned for `(K, V)`. The
-        // destination is the next free slot, disjoint from every stored record,
-        // so no aliasing occurs.
+        // the reservation (checked above) and is aligned for `(K, V)`; the
+        // destination is the next free slot, disjoint from every stored record.
         unsafe {
-            core::ptr::copy_nonoverlapping(
-                core::ptr::from_ref(&record).cast::<u8>(),
-                self.base.add(offset),
-                record_size,
-            );
+            core::ptr::copy_nonoverlapping(src, dst, record_size);
         }
         let _previous: Option<usize> = index.insert(key, offset);
         *cursor = next;
@@ -187,19 +187,19 @@ where
     A: Allocator,
     S: BuildHasher,
 {
-    type Error = FileKvOpenError;
+    type Error = MapError;
 
     #[inline]
     fn try_from(parts: Parts<S, A>) -> Result<Self, Self::Error> {
         let Parts {
             alloc,
-            hasher,
-            file,
             capacity,
+            file,
+            hasher,
         } = parts;
         let align = align_of::<(K, V)>();
         if align > MIN_PAGE_ALIGN {
-            return Err(FileKvOpenError::Unaligned { align });
+            return Err(MapError::Unaligned { align });
         }
         // SAFETY: `file.as_raw_fd()` names an open file that the caller has
         // sized to exactly `capacity` bytes and will not resize while the store
@@ -213,8 +213,8 @@ where
             base,
             capacity,
             cursor: RefCell::new(0),
-            marker: PhantomData,
             index: RefCell::new(HashMap::with_hasher_in(hasher, alloc)),
+            marker: PhantomData,
         })
     }
 }
@@ -226,16 +226,16 @@ where
     S: BuildHasher,
     A: Allocator,
 {
-    type KeysError = FileKvNextKeyError;
-    type LoadError = FileKvLoadError;
-    type StoreError = FileKvStoreError;
+    type KeysError = EnumerateError;
+    type LoadError = FetchError;
+    type StoreError = WriteError;
 
     #[inline]
     async fn load(&self, key: K, cancel: &CancellationToken) -> Result<Option<V>, Self::LoadError> {
         cancel
             .run_until_cancelled(self.read(key))
             .await
-            .ok_or(FileKvLoadError::Cancelled)
+            .ok_or(FetchError::Cancelled)
     }
 
     #[inline]
@@ -247,7 +247,7 @@ where
         cancel
             .run_until_cancelled(self.next_key_inner(after))
             .await
-            .ok_or(FileKvNextKeyError::Cancelled)
+            .ok_or(EnumerateError::Cancelled)
     }
 
     #[inline]
@@ -260,7 +260,7 @@ where
         cancel
             .run_until_cancelled(self.write(key, value))
             .await
-            .ok_or(FileKvStoreError::Cancelled)?
+            .ok_or(WriteError::Cancelled)?
     }
 }
 
@@ -269,8 +269,6 @@ where
 pub struct Parts<S, A> {
     /// The allocator the index is allocated in.
     pub alloc: A,
-    /// The hasher builder keys are hashed with.
-    pub hasher: S,
     /// The byte length of the reservation, equal to the file's length.
     pub capacity: usize,
     /// The already-opened backing file.
@@ -279,4 +277,6 @@ pub struct Parts<S, A> {
     /// `capacity` bytes with [`File::set_len`] before construction, and must
     /// not resize it while the store is live.
     pub file: File,
+    /// The hasher builder keys are hashed with.
+    pub hasher: S,
 }

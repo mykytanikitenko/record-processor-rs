@@ -21,7 +21,7 @@ mod tests {
     use allocator_api2::alloc::Global;
     use std::hash::RandomState;
     use std::path::PathBuf;
-    use storage::file_kv::{FileKvLoadError, FileKvStoreError, Parts};
+    use storage::file_kv::{FetchError, Parts, WriteError};
     use storage::{FileKv, Kv as _};
     use tokio_util::sync::CancellationToken;
 
@@ -119,8 +119,7 @@ mod tests {
         let stored = kv.store(1, 10, &cancel).await;
         let loaded = kv.load(1, &cancel).await;
         anyhow::ensure!(
-            (&stored, &loaded)
-                == (&Err(FileKvStoreError::Cancelled), &Err(FileKvLoadError::Cancelled)),
+            (&stored, &loaded) == (&Err(WriteError::Cancelled), &Err(FetchError::Cancelled)),
             "unexpected cancellation results {stored:?} {loaded:?}"
         );
         compio::fs::remove_file(&backing).await?;
