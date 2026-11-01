@@ -12,11 +12,9 @@
 //! and documented with `SAFETY` notes.
 
 // The mapping's bytes are reinterpreted as `(K, V)` via raw pointers; this is
-// the single, well-documented unsafe boundary of the storage crate.
-#![allow(
-    unsafe_code,
-    reason = "raw memory-mapped bytes are reinterpreted as (K, V)"
-)]
+// the single, well-documented unsafe boundary of the storage crate. The memory
+// mapping cannot be established without `unsafe`, permitted by the root
+// `[workspace.lints.rust]` table.
 
 use core::cell::RefCell;
 use core::hash::{BuildHasher, Hash};
