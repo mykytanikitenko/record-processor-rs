@@ -7,8 +7,10 @@ use futures_util::future::Either;
 use service::engine_state::KvState;
 use service::{ClientId, EngineParts, ServiceState, State, Transaction, TxId, TxRecord};
 use std::hash::RandomState;
+use storage::file_kv::{
+    EnumerateError, FetchError, FileKv, MapError, Parts as FileKvParts, WriteError,
+};
 use storage::file_queue::{FileQueue, OpenError, Parts as FileQueueParts};
-use storage::memory_kv::{KeysError, LoadError, MemoryKv, Parts as KvParts, StoreError};
 use tokio_util::sync::CancellationToken;
 
 /// Byte length of the transaction queue's fixed backing reservation.
@@ -20,17 +22,25 @@ use tokio_util::sync::CancellationToken;
 /// targets.
 const QUEUE_CAPACITY: usize = 1 << 31;
 
-/// The in-memory store of each client's account state.
-type Clients = MemoryKv<ClientId, ServiceState, RandomState, Global>;
-/// The in-memory store of each transaction's lifecycle.
-type Records = MemoryKv<TxId, TxRecord, RandomState, Global>;
+/// Byte length of each key-value store's fixed backing reservation.
+///
+/// Each store appends one fixed-size record per write, and the engine writes
+/// roughly once per transaction, so the stores are sized to match the queue's
+/// two-gibibyte reservation; the mapping is virtual and committed lazily, so
+/// the reservation is cheap until records are actually written.
+const KV_CAPACITY: usize = 1 << 31;
+
+/// The memory-mapped, file-backed store of each client's account state.
+type Clients = FileKv<ClientId, ServiceState, RandomState, Global>;
+/// The memory-mapped, file-backed store of each transaction's lifecycle.
+type Records = FileKv<TxId, TxRecord, RandomState, Global>;
 /// The memory-mapped, file-backed transaction queue.
 type Queue = FileQueue<Transaction, Global>;
-/// The payments engine over the memory-mapped queue and in-memory state.
+/// The payments engine over the memory-mapped queue and file-backed state.
 type Engine = service::Engine<Queue, MemoryState>;
 
 /// The engine state: per-client account state and the transaction lifecycle,
-/// both held in memory.
+/// both held in memory-mapped, file-backed stores.
 #[derive(Debug)]
 struct MemoryState {
     /// The store holding each client's account state.
@@ -40,11 +50,11 @@ struct MemoryState {
 }
 
 impl State for MemoryState {
-    type ClientsError = service::ClientsError<KeysError, LoadError>;
-    type LoadClientError = service::LoadClientError<LoadError>;
-    type LoadTxError = service::LoadTxError<LoadError>;
-    type StoreClientError = service::StoreClientError<StoreError>;
-    type StoreTxError = service::StoreTxError<StoreError>;
+    type ClientsError = service::ClientsError<EnumerateError, FetchError>;
+    type LoadClientError = service::LoadClientError<FetchError>;
+    type LoadTxError = service::LoadTxError<FetchError>;
+    type StoreClientError = service::StoreClientError<WriteError>;
+    type StoreTxError = service::StoreTxError<WriteError>;
 
     #[inline]
     async fn load_client(
@@ -166,27 +176,30 @@ pub enum ServeInputError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ProcessError {
+    /// Opening or sizing a backing file failed.
+    #[error("opening or sizing a backing file failed: {0}")]
+    Backing(#[from] BackingFileError),
+    /// Opening a memory-mapped key-value store failed.
+    #[error("opening a key-value store failed: {0}")]
+    Kv(#[source] MapError),
     /// Opening the memory-mapped transaction queue failed.
     #[error("opening the transaction queue failed: {0}")]
-    Queue(#[from] QueueOpenError),
+    Queue(#[source] OpenError),
     /// Serving the transaction stream through the engine failed.
     #[error("serving the transaction stream failed: {0}")]
     Serve(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
-/// Failure while opening the memory-mapped transaction queue.
+/// Failure while opening or sizing a backing file.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
-pub enum QueueOpenError {
+pub enum BackingFileError {
     /// The backing file could not be opened or sized.
     #[error("opening or sizing the backing file failed: {0}")]
     Io(#[from] std::io::Error),
     /// The reservation does not fit the backing-file length type.
     #[error("the reservation does not fit the backing-file length: {0}")]
     Length(#[from] core::num::TryFromIntError),
-    /// The backing file could not be turned into a queue.
-    #[error("constructing the file-backed queue failed: {0}")]
-    Map(#[source] OpenError),
 }
 
 /// Wait for either SIGINT or SIGTERM, then cancel the token.
@@ -200,16 +213,19 @@ async fn cancel_on_signal(token: CancellationToken) -> Result<(), CancelError> {
     Ok(())
 }
 
-/// Open and size the transaction queue's backing file.
+/// Open and size a backing file for a storage component.
 ///
-/// The queue maps a fixed reservation, so the backing file is created (or
-/// truncated) and extended to [`QUEUE_CAPACITY`] bytes before it is mapped; the
-/// queue itself never resizes it.
-async fn open_queue_file() -> Result<compio::fs::File, QueueOpenError> {
-    // Backing file is unique per process so concurrent runs never share a
-    // mapping; the queue truncates and re-sizes it on every open.
-    // TODO(lint/no-implicit-alloc): implicit heap allocation via `format!("{}", std::process::id())`; use a memory-mapped, reused-buffer, or borrowed alternative
-    let path = std::env::temp_dir().join(format!("{}", std::process::id()));
+/// Each component maps a fixed reservation, so the backing file is created (or
+/// truncated) and extended to `capacity` bytes before it is mapped; the
+/// component itself never resizes it. The path is unique per process and
+/// component so concurrent runs never share a mapping.
+async fn open_backing_file(
+    name: &str,
+    capacity: usize,
+) -> Result<compio::fs::File, BackingFileError> {
+    // TODO(lint/no-implicit-alloc): implicit heap allocation via `format!`; use
+    // a memory-mapped, reused-buffer, or borrowed alternative
+    let path = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
     let file = compio::fs::OpenOptions::new()
         .read(true)
         .write(true)
@@ -217,7 +233,7 @@ async fn open_queue_file() -> Result<compio::fs::File, QueueOpenError> {
         .truncate(true)
         .open(path)
         .await?;
-    file.set_len(u64::try_from(QUEUE_CAPACITY)?).await?;
+    file.set_len(u64::try_from(capacity)?).await?;
     Ok(file)
 }
 
@@ -227,20 +243,26 @@ async fn process(
     source: transport::Input<compio::fs::Stdin>,
     token: &CancellationToken,
 ) -> Result<(), ProcessError> {
-    let clients: Clients = MemoryKv::from(KvParts {
+    let clients: Clients = FileKv::try_from(FileKvParts {
         alloc: Global,
         hasher: RandomState::new(),
-    });
-    let records: Records = MemoryKv::from(KvParts {
+        file: open_backing_file("record-processor-clients", KV_CAPACITY).await?,
+        capacity: KV_CAPACITY,
+    })
+    .map_err(ProcessError::Kv)?;
+    let records: Records = FileKv::try_from(FileKvParts {
         alloc: Global,
         hasher: RandomState::new(),
-    });
+        file: open_backing_file("record-processor-records", KV_CAPACITY).await?,
+        capacity: KV_CAPACITY,
+    })
+    .map_err(ProcessError::Kv)?;
     let queue: Queue = FileQueue::try_from(FileQueueParts {
         alloc: Global,
-        file: open_queue_file().await?,
+        file: open_backing_file("record-processor-queue", QUEUE_CAPACITY).await?,
         capacity: QUEUE_CAPACITY,
     })
-    .map_err(QueueOpenError::Map)?;
+    .map_err(ProcessError::Queue)?;
     let state = MemoryState { clients, records };
     let engine = Engine::from(EngineParts { queue, state });
     transport::serve::<_, _, Global>(engine, source, token)

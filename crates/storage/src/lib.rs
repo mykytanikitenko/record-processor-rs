@@ -3,6 +3,7 @@
 //! stores.
 
 pub mod engine_state;
+pub mod file_kv;
 pub mod file_queue;
 pub mod kv;
 pub mod memory_kv;
@@ -13,6 +14,7 @@ pub mod offset;
 pub mod queue;
 
 pub use engine_state::{ClientState, CommittedOffset, KvState, State};
+pub use file_kv::FileKv;
 pub use file_queue::FileQueue;
 pub use kv::Kv;
 pub use memory_kv::MemoryKv;
