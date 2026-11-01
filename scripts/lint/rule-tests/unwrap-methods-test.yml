@@ -1,0 +1,13 @@
+id: unwrap-methods
+valid:
+  - "let tok = cursor.expect(Kind::Ident)?;"
+  - "let err = cursor.expect(Kind::Ident).err().context(\"x\")?;"
+invalid:
+  - "a.unwrap()"
+  - "a.unwrap_err()"
+  - "a.expect(\"msg\")"
+  - "a.expect_err(\"msg\")"
+  - "a.unwrap_unchecked()"
+  - "a.unwrap_err_unchecked()"
+  - "Option::unwrap(Some(1))"
+  - "Result::expect(x, \"msg\")"

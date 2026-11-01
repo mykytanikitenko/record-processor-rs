@@ -1,0 +1,10 @@
+id: pretty-assertions
+valid:
+  - "assert_eq!(a, b)"
+  - "pretty_assertions_sorted::assert_eq_sorted2!(a, b)"
+invalid:
+  - "pretty_assertions::assert_eq!(a, b)"
+  - "pretty_assertions::assert_ne!(a, b)"
+  - "pretty_assertions_sorted::assert_eq!(a, b)"
+  - "pretty_assertions_sorted::assert_ne!(a, b)"
+  - "pretty_assertions_sorted::assert_eq_sorted!(a, b)"

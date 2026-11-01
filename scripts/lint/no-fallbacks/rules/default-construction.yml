@@ -1,0 +1,19 @@
+id: default-construction
+language: Rust
+severity: error
+message: "`Default`-based construction silently creates a zero-value; make the field/state explicit or propagate a typed error instead"
+rule:
+  any:
+    - pattern: "Default::default()"
+    - pattern: $T::default()
+    - kind: attribute_item
+      regex: '(?s)^#\[derive\(.*\bDefault\b.*\)\]'
+    - kind: attribute_item
+      regex: '(?s)^#\[serde\(.*\bdefault\b.*\)\]'
+    - kind: attribute_item
+      regex: '^#\[default\]'
+    - kind: impl_item
+      regex: '^impl\b.*\bDefault\s+for\b'
+    - pattern: "mem::take($$$)"
+    - pattern: "std::mem::take($$$)"
+    - pattern: "core::mem::take($$$)"

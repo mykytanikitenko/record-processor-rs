@@ -1,0 +1,3 @@
+description = "A deposit row is missing the amount column."
+derivation = "The `deposit` kind requires an amount, so a row without one is rejected as missing-amount; the malformed-row policy aborts the run with a non-zero exit and empty stdout."
+outcome = "error"

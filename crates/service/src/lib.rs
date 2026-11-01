@@ -1,0 +1,21 @@
+//! Payments-engine contracts and their production implementation: slice
+//! streams, engine state, and the consumer that pipes one into the other.
+
+pub mod consumer;
+pub mod engine_state;
+#[cfg(feature = "mocks")]
+pub mod mocks;
+pub mod stream;
+
+pub use consumer::{
+    ApplyError, BalanceError, BalanceStream, ConsumeError, Consumer, Engine, EngineParts,
+};
+pub use engine_state::{
+    ClientsError, KvState, LoadClientError, LoadTxError, ServiceState, ServiceStateParts, State,
+    StoreClientError, StoreTxError, TxKind, TxRecord, TxRecordParts, TxStatus,
+};
+pub use stream::{Balances, Transactions};
+
+pub use record_processor_domain::client_id::ClientId;
+pub use record_processor_domain::input::{Amount, ConstructionError, Transaction, TxId};
+pub use record_processor_domain::output::{AccountBalance, Balance, OverflowError, Parts};

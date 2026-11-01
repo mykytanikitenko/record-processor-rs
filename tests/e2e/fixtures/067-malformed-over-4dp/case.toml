@@ -1,0 +1,3 @@
+description = "An amount with more than four decimal places."
+derivation = "The amount 1.23456 has more than four decimal places, so it is rejected; the malformed-row policy aborts the run with a non-zero exit and empty stdout."
+outcome = "error"

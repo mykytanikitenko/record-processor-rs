@@ -1,0 +1,39 @@
+id: error-handling-requires-result
+language: Rust
+severity: error
+message: "this scope handles errors but does not return a `Result`; errors are swallowed or converted to absence — return a `Result` and propagate with `?`"
+rule:
+  all:
+    - any:
+        - kind: function_item
+        - kind: closure_expression
+    - not:
+        has:
+          field: return_type
+          regex: '(^|::)\w*Result\s*<'
+    - has:
+        any:
+          - kind: try_expression
+          - pattern: "Err($$$)"
+          - pattern: "Ok($$$)"
+          - kind: match_arm
+            regex: '^(Ok|Err)\('
+          - pattern: $X.map_err($$$)
+          - pattern: $X.ok_or($$$)
+          - pattern: $X.ok_or_else($$$)
+          - pattern: $X.context($$$)
+          - pattern: $X.with_context($$$)
+          - pattern: $X.and_then($$$)
+          - pattern: $X.inspect_err($$$)
+          - pattern: "bail!($$$)"
+          - pattern: "ensure!($$$)"
+          - pattern: "anyhow!($$$)"
+          - pattern: "format_err!($$$)"
+          - kind: if_expression
+            regex: '^if\s+let\s+Err\b'
+          - kind: let_declaration
+            regex: '^let\s+Err\b'
+        stopBy:
+          any:
+            - kind: closure_expression
+            - kind: function_item

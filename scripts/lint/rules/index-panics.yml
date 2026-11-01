@@ -1,0 +1,6 @@
+id: index-panics
+language: Rust
+severity: error
+message: "Indexing `$A[$B]` panics on out-of-bounds access. Use `.get()` and handle the `Option`, or check bounds before indexing."
+rule:
+  pattern: $A[$B]

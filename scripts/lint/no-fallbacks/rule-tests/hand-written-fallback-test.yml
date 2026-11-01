@@ -1,0 +1,11 @@
+id: hand-written-fallback
+valid:
+  - "match x { Some(v) => v, None => return Err(e) }"
+  - "match x { Some(v) => v, None => bail!(\"missing\") }"
+  - "match x { Some(v) => v, None => foo()? }"
+  - "match x { Some(v) => v, None => unreachable!() }"
+invalid:
+  - "match x { Some(v) => v, None => 0 }"
+  - "match x { Some(v) => v, None => Vec::new() }"
+  - "match x { Some(v) => v, None => None }"
+  - "match x { Some(v) => v, None if guard => 1 }"

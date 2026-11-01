@@ -1,0 +1,33 @@
+[package]
+name = "transport"
+version = "0.1.0"
+categories.workspace = true
+description = "CSV input and output records for the record-processor payments engine"
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+allocator-api2 = { workspace = true }
+compio = { workspace = true }
+rust_decimal = { workspace = true }
+service = { workspace = true }
+thiserror = { workspace = true }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+anyhow.workspace = true
+rudzio.workspace = true
+rust_decimal.workspace = true
+
+[[test]]
+name = "main"
+path = "tests/main.rs"
+harness = false
+
+[lints]
+workspace = true

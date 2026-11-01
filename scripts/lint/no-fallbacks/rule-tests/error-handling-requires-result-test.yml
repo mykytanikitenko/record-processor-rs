@@ -1,0 +1,18 @@
+id: error-handling-requires-result
+valid:
+  - "fn f() -> Result<u8, E> { g()? }"
+  - "fn f() -> anyhow::Result<()> { bail!(\"x\") }"
+  - "fn f() -> ParseResult<T> { x? }"
+  - "fn f() -> u8 { 1 }"
+  - "fn f() { let c = || -> Result<(), E> { g()?; Ok(()) }; }"
+  - "|x| x + 1"
+  - "|x| -> Result<u8, E> { Ok(x.parse()?) }"
+invalid:
+  - "fn f() -> Option<u8> { x? }"
+  - "fn f() { match r { Ok(_) => {}, Err(e) => log(e) } }"
+  - "fn f() -> bool { r.map_err(E).is_ok() }"
+  - "fn main() { if let Err(e) = run() { exit(1) } }"
+  - "async fn f() -> u8 { g().await? }"
+  - "|x| x.parse::<u8>().map_err(E)"
+  - "|x| -> Option<u8> { x.ok()? }"
+  - ".map(|r| match r { Ok(v) => v, Err(e) => 0 })"

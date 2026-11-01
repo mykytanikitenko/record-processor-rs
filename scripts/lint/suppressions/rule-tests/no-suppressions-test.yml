@@ -1,0 +1,23 @@
+id: no-suppressions
+valid:
+  - "#[deny(warnings)]\nfn main() {}"
+  - "#![forbid(unsafe_code)]\nfn main() {}"
+  - "#[warn(unused_variables)]\nfn main() {}"
+  - "let x = a.expect(\"msg\");"
+  - "let allow = 5;"
+  - "fn allow() {}"
+  - "#[derive(Clone)]\nstruct S;"
+  - "#[test]\nfn t() {}"
+  - "#[cfg_attr(test, derive(Clone))]\nstruct S;"
+  - "#[cfg_attr(test, deny(warnings))]\nfn main() {}"
+invalid:
+  - "#[allow(dead_code)]\nfn main() {}"
+  - "#![allow(dead_code)]\nfn main() {}"
+  - "#[expect(dead_code)]\nfn main() {}"
+  - "#![expect(unused)]\nfn main() {}"
+  - "#[allow(clippy::all)]\nfn main() {}"
+  - "#[expect(rustdoc::broken_intra_doc_links)]\nfn main() {}"
+  - "#[allow(dead_code, unused_variables)]\nfn main() {}"
+  - "#[cfg_attr(test, allow(dead_code))]\nfn main() {}"
+  - "#[cfg_attr(test, expect(unused))]\nfn main() {}"
+  - "#[cfg_attr(test, allow(dead_code), expect(unused))]\nfn main() {}"

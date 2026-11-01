@@ -1,0 +1,5 @@
+description = "Further transactions arrive on an account already locked by a chargeback."
+derivation = "deposit 10.0, dispute, chargeback -> locked true, total 0.0. The subsequent deposit and withdrawal on the locked account have no spec-defined effect."
+outcome = "success"
+decision = "locked-account-operations"
+question = "After a chargeback locks an account, should subsequent deposits, withdrawals, disputes, and resolves on that account be rejected, or still applied?"

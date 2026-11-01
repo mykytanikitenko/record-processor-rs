@@ -1,0 +1,8 @@
+id: to-string-usage
+language: Rust
+severity: info
+message: "owned-string conversion; use `format!`, `String::from`, a `&str` borrow, or `Into::into`"
+rule:
+  any:
+    - pattern: $X.to_string()
+    - pattern: $X.to_owned()

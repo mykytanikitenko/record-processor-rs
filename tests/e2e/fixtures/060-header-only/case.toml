@@ -1,0 +1,3 @@
+description = "A header-only file with no transaction rows produces no client rows."
+derivation = "No transactions -> no clients -> output is the header line only."
+outcome = "success"

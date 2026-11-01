@@ -1,0 +1,3 @@
+description = "A row whose type column is not one of the known transaction types."
+derivation = "The `type` value `mystery` matches no transaction variant, so deserialization fails with an unknown-type error; the malformed-row policy aborts the run with a non-zero exit and empty stdout."
+outcome = "error"

@@ -1,0 +1,12 @@
+id: panic-macros
+valid:
+  - "assert_eq!(a, b)"
+  - "assert!(x)"
+  - "let x = arr[0];"
+  - "let x = a.unwrap();"
+invalid:
+  - "panic!(\"boom\")"
+  - "std::panic!(\"boom\")"
+  - "unreachable!()"
+  - "todo!()"
+  - "unimplemented!()"

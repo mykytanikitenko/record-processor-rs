@@ -1,0 +1,62 @@
+# cargo-deny configuration for the record-processor workspace.
+#
+# All four checks are enabled and set to the strictest level. Every finding is
+# a hard failure, with exactly one operator-sanctioned exception, carrying
+# a `reason` field documenting when to remove it:
+#   * [bans].skip — syn@2.0.119 (duplicate of syn@3), see reason.
+
+[advisories]
+# The advisory DB is fetched from the RustSec git repo and cached under
+# `$CARGO_HOME/advisory-db` (cargo-deny's default). It is shared with
+# cargo-audit, which uses the same path.
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Vulnerability advisories always fail (not configurable in this cargo-deny).
+# Unmaintained / unsound are scoped to `all` so any matching crate fails.
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+
+[bans]
+# Any crate resolved to more than one version fails the check.
+multiple-versions = "deny"
+highlight = "all"
+# Operator-sanctioned: syn@2 (the 2.0.x line) is a duplicate of syn@3.
+skip = [
+  { crate = "syn@2.0.119", reason = "derive_more-impl (through 2.1.1) and rudzio-macro both require syn ^2; remove once both migrate to syn 3" },
+]
+
+# The payments engine is compio thread-per-core and must not pull a Tokio
+# runtime. `tokio-util`'s `CancellationToken`/`TaskTracker` are the only
+# permitted Tokio-family APIs, and they require only tokio's empty `rt`/`sync`
+# marker features. Every heavyweight Tokio feature is denied so no future
+# dependency can silently drag in a second runtime.
+[[bans.features]]
+crate = "tokio"
+deny = [
+  "fs",
+  "io-std",
+  "io-util",
+  "macros",
+  "net",
+  "process",
+  "rt-multi-thread",
+  "signal",
+  "time",
+]
+
+[licenses]
+version = 2
+# Allow-list: exactly the SPDX identifiers present in the resolved dependency
+# graph. Every entry is OSI-approved and permissive. Dual/tri-licensed crates
+# that also carry a copyleft arm (e.g. r-efi's LGPL-2.1-or-later) resolve to a
+# permissive arm (MIT / Apache-2.0) already in this list, so no copyleft
+# license is ever exercised.
+allow = ["Apache-2.0", "BSL-1.0", "MIT", "Unicode-3.0", "Unlicense", "Zlib"]
+# No per-crate license overrides — linters have no exclusions.
+exceptions = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/mykytanikitenko/rudzio.git"]

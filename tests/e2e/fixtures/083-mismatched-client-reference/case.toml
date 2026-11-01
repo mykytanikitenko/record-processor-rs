@@ -1,0 +1,5 @@
+description = "A dispute names a client different from the client of the referenced transaction."
+derivation = "deposit 10.0 belongs to client 1. The dispute row names client 2 while referencing tx 1."
+outcome = "success"
+decision = "mismatched-client-reference"
+question = "When a dispute/resolve/chargeback row names a client that differs from the client of the referenced transaction, which is authoritative — the row's client or the transaction's client?"

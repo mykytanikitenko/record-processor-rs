@@ -1,0 +1,17 @@
+id: todo-comments
+valid:
+  - "// this is a normal comment"
+  - "/* block comment */"
+  - "let x = 5;"
+  - "/// documentation comment"
+  - "fn main() {}"
+invalid:
+  - "// TODO: fix this"
+  - "// FIXME: broken"
+  - "// XXX: hack"
+  - "// HACK: workaround"
+  - "// TBD: decide"
+  - "/* TODO: later */"
+  - "/*! TODO: inner doc */"
+  - "/// TODO in doc comment"
+  - "// todo lowercase"

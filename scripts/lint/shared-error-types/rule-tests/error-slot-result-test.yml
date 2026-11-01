@@ -1,0 +1,26 @@
+id: error-slot-result
+valid:
+  - "fn a() -> i32 { 1 }"
+  - "fn b() { }"
+  - |
+    #[test]
+    fn t() -> Result<(), FooError> {
+        Ok(())
+    }
+  - |
+    #[tokio::test]
+    async fn t2() -> Result<(), FooError> {
+        Ok(())
+    }
+invalid:
+  - |
+    fn a() -> Result<(), FooError> {
+        Ok(())
+    }
+  - |
+    async fn b() -> Result<u8, BarError> {
+        Ok(0)
+    }
+  - "fn c() -> std::result::Result<i32, crate::x::BarError> { Ok(0) }"
+  - "fn d(&self) -> Result<(), MethodErr> { Ok(()) }"
+  - "fn e(&self) -> Result<(), TraitErr>;"

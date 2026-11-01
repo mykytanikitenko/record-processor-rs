@@ -1,0 +1,46 @@
+id: error-discard
+language: Rust
+severity: error
+message: "`.ok()`/`.err()`/`.is_ok()`/`.is_err()` (or their path/UFCS forms) discard the error instead of propagating it"
+rule:
+  any:
+    - pattern: $X.ok()
+    - pattern: $X.is_ok()
+    - pattern: $X.is_err()
+    - all:
+        - pattern: $X.err()
+        - not:
+            all:
+              - inside:
+                  all:
+                    - kind: field_expression
+                    - has:
+                        field: field
+                        regex: '^(context|with_context|ok_or|ok_or_else)$'
+                  stopBy: end
+              - inside:
+                  kind: try_expression
+                  stopBy: end
+    - pattern: "Result::ok($$$)"
+    - pattern: "Result::err($$$)"
+    - pattern: "Result::is_ok($$$)"
+    - pattern: "Result::is_err($$$)"
+    - pattern: $X.filter(Result::is_ok)
+    - pattern: $X.filter(Result::is_err)
+    - pattern: $X.filter_map(Result::ok)
+    - pattern: $X.filter_map(Result::err)
+    - pattern: $X.flat_map(Result::ok)
+    - pattern: $X.map_while(Result::ok)
+    - pattern: $X.flatten()
+    - pattern: $T::flatten($$$)
+    - kind: match_arm
+      regex: '^Err\(\s*_\s*\)'
+    - kind: if_expression
+      regex: '^if\s+let\s+Ok\b'
+    - kind: while_expression
+      regex: '^while\s+let\s+Ok\b'
+    - pattern: "catch_unwind($$$)"
+    - pattern: "std::panic::catch_unwind($$$)"
+    - pattern: "Err(())"
+    - kind: generic_type
+      regex: '^Result\s*<.*,\s*\(\s*\)\s*>'

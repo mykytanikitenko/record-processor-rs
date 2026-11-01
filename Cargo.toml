@@ -1,0 +1,213 @@
+[package]
+name = "record-processor"
+version = "0.1.0"
+categories.workspace = true
+description.workspace = true
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+autotests = false
+
+[dependencies]
+cli = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+anyhow.workspace = true
+compio.workspace = true
+csv.workspace = true
+derive_more.workspace = true
+rudzio.workspace = true
+rust_decimal.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+[[test]]
+name = "e2e"
+path = "tests/e2e/main.rs"
+harness = false
+
+[lints]
+workspace = true
+
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.dependencies]
+allocator-api2 = { version = "=0.2.21", default-features = false, features = [
+  "std",
+] }
+anyhow = { version = "=1.0.104", default-features = false, features = ["std"] }
+bumpalo = { version = "=3.20.3", default-features = false, features = [
+  "allocator-api2",
+] }
+cli = { path = "crates/cli", default-features = false, features = [] }
+compio = { version = "=0.19.2", default-features = false, features = [
+  "runtime",
+  "fs",
+  "io-compat",
+  "memmap2",
+  "polling",
+  "process",
+  "signal",
+] }
+csv = { version = "=1.4.0", default-features = false, features = [] }
+derive_more = { version = "=2.1.1", default-features = false, features = [
+  "debug",
+  "deref",
+  "from",
+] }
+event-listener = { version = "=5.4.2", default-features = false, features = [
+  "std",
+] }
+futures-util = { version = "=0.3.34", default-features = false, features = [
+  "std",
+] }
+hashbrown = { version = "=0.17.1", default-features = false, features = [
+  "allocator-api2",
+] }
+libc = { version = "=0.2.191", default-features = false, features = [] }
+record-processor-domain = { path = "crates/domain", default-features = false, features = [
+] }
+mockall = { version = "=0.15.0", default-features = false, features = [] }
+pico-args = { version = "=0.5.0", default-features = false, features = [] }
+rudzio = { git = "https://github.com/mykytanikitenko/rudzio.git", rev = "c4bf5a7ea4f1b490e27c3cb1c034505549f28d86", default-features = false, features = [
+  "runtime-futures",
+  "runtime-compio",
+  "common",
+] }
+rust_decimal = { version = "=1.43.0", default-features = false, features = [
+  "serde-str",
+  "std",
+] }
+serde = { version = "=1.0.229", default-features = false, features = [
+  "derive",
+  "std",
+] }
+service = { path = "crates/service", default-features = false, features = [] }
+storage = { path = "crates/storage", default-features = false, features = [] }
+thiserror = { version = "=2.0.21", default-features = false, features = [
+  "std",
+] }
+tokio-util = { version = "=0.7.20", default-features = false, features = [
+  "rt",
+] }
+toml = { version = "=0.8.23", default-features = false, features = ["parse"] }
+transport = { path = "crates/transport", default-features = false, features = [
+] }
+
+[workspace.package]
+categories = ["command-line-utilities", "finance"]
+description = "Toy payments engine that streams CSV transactions and reports client account balances"
+edition = "2024"
+homepage = "https://github.com/mykytanikitenko/record-processor-rs"
+keywords = ["csv", "payments", "transactions"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/mykytanikitenko/record-processor-rs"
+
+# Rust lints
+# Strategy: deny all warnings + edition groups + future-incompatible, then
+# explicitly elevate allow-by-default lints we care about.
+[workspace.lints.rust]
+warnings = "deny"
+
+# Lint groups
+future_incompatible = { level = "deny", priority = -1 }
+keyword_idents = { level = "deny", priority = -1 }
+let_underscore = { level = "deny", priority = -1 }
+nonstandard_style = { level = "deny", priority = -1 }
+refining_impl_trait = { level = "deny", priority = -1 }
+rust_2018_idioms = { level = "deny", priority = -1 }
+rust_2021_compatibility = { level = "deny", priority = -1 }
+rust_2024_compatibility = { level = "deny", priority = -1 }
+unused = { level = "deny", priority = -1 }
+
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(rudzio_test)'] }
+
+# Allow-by-default lints elevated to deny
+macro_use_extern_crate = "deny"
+meta_variable_misuse = "deny"
+missing_copy_implementations = "deny"
+missing_debug_implementations = "deny"
+non_ascii_idents = "deny"
+redundant_imports = "deny"
+redundant_lifetimes = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unit_bindings = "deny"
+unreachable_pub = "deny"
+unused_import_braces = "deny"
+unused_lifetimes = "deny"
+unused_qualifications = "deny"
+unused_results = "deny"
+
+# Intentionally allowed
+single_use_lifetimes = "allow"
+unsafe_code = "allow"              # establishing the mmap file queue requires unsafe
+variant_size_differences = "allow"
+
+# Clippy lints
+# Strategy: deny ALL groups including restriction, then allow the handful
+# of restriction lints that are too noisy or conflict with project style.
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+complexity = { level = "deny", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+restriction = { level = "deny", priority = -1 }
+style = { level = "deny", priority = -1 }
+suspicious = { level = "deny", priority = -1 }
+
+# Overrides — allow lints that conflict with project style or are too noisy
+blanket_clippy_restriction_lints = { level = "allow", priority = 1 }
+error_impl_error = { level = "allow", priority = 1 }                  # thiserror derives std::error::Error; naming type Error is idiomatic
+exhaustive_structs = { level = "allow", priority = 1 }                # construction-input structs (e.g. Parts) are built via struct literal at call sites
+field_scoped_visibility_modifiers = { level = "allow", priority = 1 }
+implicit_return = { level = "allow", priority = 1 }
+missing_trait_methods = { level = "allow", priority = 1 }             # absurd for std traits like Iterator with 80+ default methods
+mod_module_files = { level = "allow", priority = 1 }
+multiple_inherent_impl = { level = "allow", priority = 1 }            # split impl blocks across files for readability
+pattern_type_mismatch = { level = "allow", priority = 1 }
+pub_use = { level = "allow", priority = 1 }
+pub_with_shorthand = { level = "allow", priority = 1 }
+question_mark_used = { level = "allow", priority = 1 }
+redundant_pub_crate = { level = "allow", priority = 1 }               # conflicts with unreachable_pub for private modules
+redundant_type_annotations = { level = "allow", priority = 1 }
+rest_pattern_accessible_field = { level = "allow", priority = 1 }     # new in 1.99.0; directly contradicts unneeded_field_pattern for "ignore all fields" match arms
+semicolon_outside_block = { level = "allow", priority = 1 }
+std_instead_of_alloc = { level = "allow", priority = 1 }              # serde derive generates std references
+std_instead_of_core = { level = "allow", priority = 1 }               # serde derive generates std references
+separated_literal_suffix = { level = "allow", priority = 1 }          # conflicts with unseparated_literal_suffix; we want 10_u32 style
+single_call_fn = { level = "allow", priority = 1 }
+tests_outside_test_module = { level = "allow", priority = 1 }         # false positive for integration tests in tests/
+future_not_send = { level = "allow", priority = 1 }                   # compio is thread-per-core; futures are intentionally !Send
+multiple_crate_versions = { level = "allow", priority = 1 }           # transitive dependencies may pull differing major versions of the same crate
+needless_pass_by_ref_mut = { level = "allow", priority = 1 }          # trait-mandated `&mut self` receivers are common in async runtime callbacks
+too_many_lines = { level = "allow", priority = 1 }                    # exhaustive match dispatch is inherently long
+unused_async = { level = "allow", priority = 1 }                      # async signatures are dictated by runtime traits even without await points
+unused_async_trait_impl = { level = "allow", priority = 1 }           # async signatures are dictated by runtime traits even without await points
+unused_self = { level = "allow", priority = 1 }                       # trait-mandated method receivers may not touch self
+
+[profile.dev]
+opt-level = 0
+lto = false
+codegen-units = 256
+incremental = true
+panic = "abort"
+debug = 1
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false

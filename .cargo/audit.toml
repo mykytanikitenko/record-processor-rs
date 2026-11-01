@@ -1,0 +1,7 @@
+# cargo-audit configuration for the record-processor workspace.
+#
+# No advisories are currently ignored. The previous RUSTSEC-2024-0436
+# (`paste` unmaintained) ignore was removed after the rudzio bump dropped the
+# compio-driver/paste subtree.
+[advisories]
+ignore = []

@@ -1,0 +1,9 @@
+id: panic-macros
+language: Rust
+severity: error
+message: "`$M!` panics or aborts the program. Return a `Result` and propagate the error with `?` instead."
+rule:
+  pattern: $M!($$$)
+constraints:
+  M:
+    regex: "(^|::)(panic|unreachable|todo|unimplemented)$"

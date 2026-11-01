@@ -1,0 +1,3 @@
+description = "Trailing zeros in amounts (1.0 vs 1.0000) are equal in value."
+derivation = "client 1: 1.0 + 1.0000 -> 2.0; client 2: 2.5000."
+outcome = "success"

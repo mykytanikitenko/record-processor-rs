@@ -1,0 +1,17 @@
+id: test-returns-anyhow-result
+language: Rust
+severity: error
+message: "Test functions must return `anyhow::Result<...>` so failures propagate as errors instead of panicking. Add `-> anyhow::Result<()>` to the signature."
+rule:
+  all:
+    - kind: function_item
+    - follows:
+        kind: attribute_item
+        regex: '.*#\[(test|compio::test|tokio::test|rudzio::test|rstest|test_case)\b.*'
+        stopBy:
+          not:
+            kind: attribute_item
+    - not:
+        has:
+          field: return_type
+          regex: '.*anyhow::Result.*'

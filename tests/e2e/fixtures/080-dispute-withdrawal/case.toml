@@ -1,0 +1,5 @@
+description = "A dispute references a successful withdrawal transaction."
+derivation = "deposit 10.0, withdrawal 5.0 -> available 5.0. The dispute of tx 2 (the withdrawal) has no spec-defined effect."
+outcome = "success"
+decision = "dispute-withdrawal"
+question = "Can a dispute reference a withdrawal transaction? If so, does disputing a withdrawal reverse the debit (returning funds to available), or is dispute only meaningful for deposits?"

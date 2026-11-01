@@ -1,0 +1,9 @@
+id: to-string-usage
+valid:
+  - 'format!("{x}")'
+  - 'String::from(x)'
+  - 'let s: &str = &owned;'
+  - 'let t: String = x.into();'
+invalid:
+  - 'x.to_string()'
+  - 'x.to_owned()'

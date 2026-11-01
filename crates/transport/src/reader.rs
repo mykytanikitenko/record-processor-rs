@@ -1,0 +1,423 @@
+//! The transaction reader: an owned stream of transactions parsed from an
+//! async byte source.
+
+use compio::buf::{BufResult, IntoInner as _, IoBufMut as _};
+use compio::io::{AsyncRead, AsyncReadAt as _, AsyncReadExt as _};
+use rust_decimal::Decimal;
+use service::{Amount, ClientId, ConstructionError, Transaction, TxId};
+use std::str::FromStr as _;
+use tokio_util::sync::CancellationToken;
+
+/// Maps the `amount` column of a `deposit` or `withdrawal` row onto an
+/// [`Amount`], rejecting a missing or empty value.
+macro_rules! require_amount {
+    ($amount_str:expr, $line:expr) => {{
+        let raw = $amount_str
+            .filter(|field| !field.is_empty())
+            .ok_or(RecordError::MissingAmount { line: $line })?;
+        let decimal = Decimal::from_str(raw).map_err(|source| RecordError::InvalidDecimal {
+            line: $line,
+            raw: raw.into(),
+            source,
+        })?;
+        Amount::try_from(decimal)?
+    }};
+}
+
+/// Rejects a non-empty `amount` column on a row kind that must not carry one.
+macro_rules! reject_amount {
+    ($amount_str:expr) => {{
+        if $amount_str.filter(|field| !field.is_empty()).is_some() {
+            return Err(RecordError::UnexpectedAmount);
+        }
+    }};
+}
+
+/// Extra bytes reserved on the read buffer before each refill.
+const READ_CHUNK: usize = 64;
+
+/// Failure to read from the production reader.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ReadError {
+    /// The stream was cancelled before it exhausted.
+    #[error("transaction reader cancelled")]
+    Cancelled,
+    /// Refilling the buffer from the byte source failed.
+    #[error(transparent)]
+    Fill(#[from] FillError),
+    /// The 1-based line counter overflowed `usize`.
+    #[error("transaction reader line count overflowed")]
+    LineOverflow,
+    /// A CSV record could not be mapped onto a transaction.
+    #[error(transparent)]
+    Record(#[from] RecordError),
+}
+
+/// Failure to refill the read buffer from the byte source.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum FillError {
+    /// The underlying byte source failed.
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// The running file offset overflowed `u64`.
+    #[error("input file offset overflowed")]
+    OffsetOverflow,
+    /// A read length did not fit the `u64` file offset.
+    #[error("input read length does not fit the file offset: {0}")]
+    OffsetWiden(#[from] std::num::TryFromIntError),
+}
+
+/// Failure to map one CSV line onto a [`Transaction`].
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum RecordError {
+    /// The amount failed the domain's positivity and precision rules.
+    #[error("invalid amount: {0}")]
+    Amount(#[from] ConstructionError),
+    /// The client column was not a valid `u16`.
+    #[error("invalid client id `{raw}` at line {line}: {source}")]
+    Client {
+        /// The 1-based line number of the offending record.
+        line: usize,
+        /// The offending client column text.
+        raw: String,
+        /// The parse failure.
+        #[source]
+        source: std::num::ParseIntError,
+    },
+    /// The header row was absent or did not match the contract.
+    #[error("expected `type,client,tx,amount`, got `{found}`")]
+    Header {
+        /// The actual header line that failed to match.
+        found: String,
+    },
+    /// The amount column was not a valid decimal.
+    #[error("invalid amount `{raw}` at line {line}: {source}")]
+    InvalidDecimal {
+        /// The 1-based line number of the offending record.
+        line: usize,
+        /// The offending amount column text.
+        raw: String,
+        /// The decimal parse failure.
+        #[source]
+        source: rust_decimal::Error,
+    },
+    /// A `deposit` or `withdrawal` row carried no amount.
+    #[error("transaction row at line {line} is missing the `amount` column")]
+    MissingAmount {
+        /// The 1-based line number of the offending record.
+        line: usize,
+    },
+    /// A transaction row was missing a required column.
+    #[error("transaction row at line {line} is missing the `{field}` column")]
+    MissingField {
+        /// The 1-based line number of the offending record.
+        line: usize,
+        /// The name of the missing column.
+        field: String,
+    },
+    /// A transaction row carried more than four columns.
+    #[error("transaction row at line {line} has too many columns")]
+    TooManyFields {
+        /// The 1-based line number of the offending record.
+        line: usize,
+    },
+    /// The transaction column was not a valid `u32`.
+    #[error("invalid transaction id `{raw}` at line {line}: {source}")]
+    Tx {
+        /// The 1-based line number of the offending record.
+        line: usize,
+        /// The offending transaction column text.
+        raw: String,
+        /// The parse failure.
+        #[source]
+        source: std::num::ParseIntError,
+    },
+    /// A `dispute`, `resolve`, or `chargeback` row carried an amount.
+    #[error("dispute, resolve, or chargeback must not carry an amount")]
+    UnexpectedAmount,
+    /// The `type` column matched no known transaction kind.
+    #[error("unknown transaction type `{value}` at line {line}")]
+    UnknownType {
+        /// The 1-based line number of the offending record.
+        line: usize,
+        /// The unrecognized `type` column text.
+        value: String,
+    },
+    /// A line was not valid UTF-8.
+    #[error("CSV record is not valid UTF-8")]
+    Utf8(#[from] std::str::Utf8Error),
+}
+
+/// The owned byte source of the production reader.
+///
+/// `compio::fs::File` is positional (`AsyncReadAt`) and has no sequential
+/// `AsyncRead`, so a file is read through an explicit offset owned here instead
+/// of an adapter; both variants refill the same reused buffer.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Input<S> {
+    /// A positional file read from `offset` onward.
+    File {
+        /// The file being streamed.
+        file: compio::fs::File,
+        /// The position of the next read.
+        offset: u64,
+    },
+    /// A sequential stream such as standard input.
+    Stream(S),
+}
+
+impl<S> From<compio::fs::File> for Input<S> {
+    #[inline]
+    fn from(file: compio::fs::File) -> Self {
+        Self::File { file, offset: 0 }
+    }
+}
+
+/// A production transaction reader over an owned byte source.
+///
+/// The record loop is hand-written rather than a `compio::io::framed::Framed`
+/// stream: its `Stream` impl demands `R: AsyncRead + 'static`, which a generic
+/// source cannot name without the forbidden `'static` token, and the header
+/// state, the end-of-input marker and the per-call cancellation check have no
+/// place in a `Framer`/`Decoder` pair.
+#[derive(Debug)]
+pub struct Reader<S> {
+    /// Bytes read but not yet consumed as a complete record.
+    buffer: Vec<u8>,
+    /// Whether the source has reached end-of-input.
+    eof: bool,
+    /// Whether the end-of-input marker has been yielded.
+    eof_yielded: bool,
+    /// Whether the header row has been consumed.
+    header_seen: bool,
+    /// The 1-based line number of the next record to be parsed.
+    line: usize,
+    /// The owned byte source the real reader consumes.
+    source: Input<S>,
+}
+
+impl<S> From<Input<S>> for Reader<S> {
+    #[inline]
+    fn from(source: Input<S>) -> Self {
+        Self {
+            buffer: Vec::from([]),
+            eof: false,
+            eof_yielded: false,
+            header_seen: false,
+            line: 0,
+            source,
+        }
+    }
+}
+
+impl<S> Reader<S> {
+    /// Consume the reader, returning the underlying source.
+    #[inline]
+    pub fn into_inner(self) -> Input<S> {
+        self.source
+    }
+}
+
+impl<S> Reader<S>
+where
+    S: AsyncRead,
+{
+    /// Append the next chunk of the source to the reused buffer, returning the
+    /// number of bytes read (zero at end-of-input).
+    async fn fill(&mut self) -> Result<usize, FillError> {
+        let mut buffer = Vec::from([]);
+        core::mem::swap(&mut buffer, &mut self.buffer);
+        buffer.reserve(READ_CHUNK);
+        match &mut self.source {
+            Input::File { file, offset } => {
+                let BufResult(result, tail) = file.read_at(buffer.uninit(), *offset).await;
+                self.buffer = tail.into_inner();
+                let read = result?;
+                *offset = offset
+                    .checked_add(u64::try_from(read)?)
+                    .ok_or(FillError::OffsetOverflow)?;
+                Ok(read)
+            }
+            Input::Stream(stream) => {
+                let appended = stream.append(buffer).await;
+                self.buffer = appended.1;
+                Ok(appended.0?)
+            }
+        }
+    }
+}
+
+impl<S> Reader<S>
+where
+    S: AsyncRead,
+{
+    /// Return the next transaction from the source, or `None` at end-of-input.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError`] when the stream is cancelled, the byte source
+    /// fails, or a CSV record cannot be mapped onto a transaction.
+    #[inline]
+    pub async fn next(
+        &mut self,
+        cancel: &CancellationToken,
+    ) -> Result<Option<Transaction>, ReadError> {
+        if cancel.is_cancelled() {
+            return Err(ReadError::Cancelled);
+        }
+        loop {
+            if let Some(newline) = self.buffer.iter().position(|&byte| byte == b'\n') {
+                let payload = match newline.checked_sub(1) {
+                    Some(prev) if self.buffer.get(prev) == Some(&b'\r') => prev,
+                    _ => newline,
+                };
+                self.line = self.line.checked_add(1).ok_or(ReadError::LineOverflow)?;
+                let line_number = self.line;
+                let record = parse_record(
+                    self.buffer.split_at(payload).0,
+                    &mut self.header_seen,
+                    line_number,
+                )
+                .map_err(ReadError::Record)?;
+                self.buffer.drain(..=newline).for_each(drop);
+                if let Some(transaction) = record {
+                    return Ok(Some(transaction));
+                }
+                continue;
+            }
+
+            if self.eof {
+                if self.buffer.is_empty() {
+                    if self.eof_yielded {
+                        return Ok(None);
+                    }
+                    self.eof_yielded = true;
+                    return Ok(Some(Transaction::Eof));
+                }
+                self.line = self.line.checked_add(1).ok_or(ReadError::LineOverflow)?;
+                let line_number = self.line;
+                let record = parse_record(&self.buffer, &mut self.header_seen, line_number)
+                    .map_err(ReadError::Record)?;
+                self.buffer.drain(..).for_each(drop);
+                if let Some(transaction) = record {
+                    return Ok(Some(transaction));
+                }
+                continue;
+            }
+
+            if self.fill().await.map_err(ReadError::Fill)? == 0 {
+                self.eof = true;
+            }
+        }
+    }
+}
+
+/// Parse one CSV line (already freed of its trailing `\r\n`) into a
+/// transaction, consuming the header row on first call.
+///
+/// `line_number` is the 1-based line number of `line` in the input, attached
+/// to any [`RecordError`] the parse produces.
+fn parse_record(
+    line: &[u8],
+    header_seen: &mut bool,
+    line_number: usize,
+) -> Result<Option<Transaction>, RecordError> {
+    let text = core::str::from_utf8(line)?;
+
+    if !*header_seen {
+        *header_seen = true;
+        let mut columns = text.split(',').map(str::trim);
+        let kind = columns.next();
+        let client = columns.next();
+        let tx = columns.next();
+        let amount = columns.next();
+        let extra = columns.next();
+        if kind == Some("type")
+            && client == Some("client")
+            && tx == Some("tx")
+            && amount == Some("amount")
+            && extra.is_none()
+        {
+            return Ok(None);
+        }
+        return Err(RecordError::Header { found: text.into() });
+    }
+
+    let mut fields = text.split(',');
+    let kind = fields
+        .next()
+        .ok_or_else(|| RecordError::MissingField {
+            line: line_number,
+            field: "type".into(),
+        })?
+        .trim();
+    let client_str = fields
+        .next()
+        .ok_or_else(|| RecordError::MissingField {
+            line: line_number,
+            field: "client".into(),
+        })?
+        .trim();
+    let tx_str = fields
+        .next()
+        .ok_or_else(|| RecordError::MissingField {
+            line: line_number,
+            field: "tx".into(),
+        })?
+        .trim();
+    let amount_str = fields.next().map(str::trim);
+    if fields.next().is_some() {
+        return Err(RecordError::TooManyFields { line: line_number });
+    }
+
+    let client =
+        ClientId::from(
+            client_str
+                .parse::<u16>()
+                .map_err(|source| RecordError::Client {
+                    line: line_number,
+                    raw: client_str.into(),
+                    source,
+                })?,
+        );
+    let tx = TxId::from(tx_str.parse::<u32>().map_err(|source| RecordError::Tx {
+        line: line_number,
+        raw: tx_str.into(),
+        source,
+    })?);
+
+    let transaction = match kind {
+        "deposit" => {
+            let amount = require_amount!(amount_str, line_number);
+            Transaction::Deposit { client, tx, amount }
+        }
+        "withdrawal" => {
+            let amount = require_amount!(amount_str, line_number);
+            Transaction::Withdrawal { client, tx, amount }
+        }
+        "dispute" => {
+            reject_amount!(amount_str);
+            Transaction::Dispute { client, tx }
+        }
+        "resolve" => {
+            reject_amount!(amount_str);
+            Transaction::Resolve { client, tx }
+        }
+        "chargeback" => {
+            reject_amount!(amount_str);
+            Transaction::Chargeback { client, tx }
+        }
+        unknown => {
+            return Err(RecordError::UnknownType {
+                line: line_number,
+                value: unknown.into(),
+            });
+        }
+    };
+
+    Ok(Some(transaction))
+}

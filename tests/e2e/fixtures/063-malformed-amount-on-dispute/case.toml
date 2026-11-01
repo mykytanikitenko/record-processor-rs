@@ -1,0 +1,3 @@
+description = "A dispute row carries an amount column, which the spec does not define."
+derivation = "The `dispute` kind must not carry an amount, so the raw record is rejected as unexpected-amount; the malformed-row policy aborts the run with a non-zero exit and empty stdout."
+outcome = "error"

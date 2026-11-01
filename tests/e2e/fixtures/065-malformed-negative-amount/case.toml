@@ -1,0 +1,3 @@
+description = "A deposit carries a negative amount."
+derivation = "The amount -5.0 is not positive, so it is rejected; the malformed-row policy aborts the run with a non-zero exit and empty stdout."
+outcome = "error"

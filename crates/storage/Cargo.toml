@@ -1,0 +1,47 @@
+[package]
+name = "storage"
+version = "0.1.0"
+categories.workspace = true
+description = "Account and transaction state store for the record-processor payments engine"
+edition.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+autotests = false
+
+[package.metadata.rudzio]
+features = ["mocks"]
+
+[dependencies]
+allocator-api2 = { workspace = true }
+compio = { workspace = true }
+derive_more = { workspace = true }
+event-listener = { workspace = true }
+hashbrown = { workspace = true }
+mockall = { workspace = true, optional = true }
+record-processor-domain = { workspace = true }
+thiserror = { workspace = true }
+tokio-util = { workspace = true }
+
+[dev-dependencies]
+allocator-api2.workspace = true
+anyhow.workspace = true
+futures-util.workspace = true
+mockall.workspace = true
+record-processor-domain.workspace = true
+rudzio.workspace = true
+rust_decimal.workspace = true
+tokio-util.workspace = true
+
+[features]
+mocks = ["dep:mockall"]
+
+[[test]]
+name = "main"
+path = "tests/main.rs"
+harness = false
+
+[lints]
+workspace = true

@@ -1,0 +1,23 @@
+id: no-manual-fmt
+valid:
+  - "#[derive(Debug)]\nstruct S;"
+  - "#[derive(derive_more::Display)]\nstruct S;"
+  - "impl From<u8> for S {\n    fn from(v: u8) -> Self { Self }\n}"
+  - "impl MyTrait for S {\n    fn f(&self) {}\n}"
+  - "impl S {\n    fn fmt(&self) -> String { String::new() }\n}"
+  - "struct Display;\nstruct Debug;"
+invalid:
+  - "impl Display for S {\n    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }\n}"
+  - "impl Debug for S {\n    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }\n}"
+  - "impl std::fmt::Debug for S {\n    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { todo!() }\n}"
+  - "impl core::fmt::Display for S {\n    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result { todo!() }\n}"
+  - "impl fmt::LowerHex for S {\n    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }\n}"
+  - "impl fmt::UpperHex for S {\n    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }\n}"
+  - "impl fmt::Binary for S {\n    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }\n}"
+  - "impl fmt::Octal for S {\n    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }\n}"
+  - "impl fmt::Pointer for S {\n    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }\n}"
+  - "impl fmt::LowerExp for S {\n    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }\n}"
+  - "impl fmt::UpperExp for S {\n    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }\n}"
+  - "impl fmt::Write for S {\n    fn write_str(&mut self, s: &str) -> fmt::Result { Ok(()) }\n}"
+  - "impl<'a> fmt::Display for S<'a> {\n    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { todo!() }\n}"
+  - "impl<T> std::fmt::UpperExp for S<T> {\n    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { todo!() }\n}"

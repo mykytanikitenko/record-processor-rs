@@ -1,0 +1,22 @@
+id: fallback-methods
+valid:
+  - "let x = a.ok_or(E)?;"
+  - "let x = a.ok_or_else(|| E)?;"
+  - "let x = a.context(\"ctx\")?;"
+  - "let x = a.map(|v| v + 1);"
+  - "let x = a.and_then(|v| g(v))?;"
+invalid:
+  - "a.unwrap_or(0)"
+  - "a.unwrap_or_default()"
+  - "a.unwrap_or_else(|| 0)"
+  - "a.map_or(0, |v| v)"
+  - "a.map_or_else(|| 0, |v| v)"
+  - "a.or(b)"
+  - "a.xor(b)"
+  - "Option::unwrap_or(Some(1), 0)"
+  - "Option::unwrap_or_default(None)"
+  - "Option::unwrap_or_else(None, || 0)"
+  - "Option::map_or(Some(1), 0, |v| v)"
+  - "Option::map_or_else(Some(1), || 0, |v| v)"
+  - "Option::or(Some(1), Some(2))"
+  - "Option::xor(Some(1), Some(2))"

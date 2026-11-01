@@ -1,0 +1,34 @@
+#!/usr/bin/env fish
+# commit-msg hook: reject a commit whose message contains the forbidden brand
+# word. The word is never written literally here — it is assembled from ASCII
+# code points by scripts/lib/forbidden-word.jq (shared with the full lint in
+# scripts/lint/forbidden-word.fish, so the two can never drift apart).
+#
+# Git invokes this hook with the path to the commit-message file as $1 and
+# rejects the commit when the hook exits non-zero.
+
+set -l msgfile $argv[1]
+if test -z "$msgfile"
+    echo "commit-msg: no message file argument" >&2
+    exit 1
+end
+
+set -l hook_dir (status dirname)
+set -l repo_root (path resolve "$hook_dir/../..")
+
+source "$repo_root/scripts/lib/forbidden-word.fish"
+
+set -l message (cat "$msgfile" | string collect)
+
+if _forbidden_word_found "$message"
+    echo "✗ commit-msg: commit message contains the forbidden word" >&2
+    for h in (_forbidden_word_matches "$message")
+        set -l ln (printf '%s' "$h" | jq -r '.line')
+        set -l dir (printf '%s' "$h" | jq -r '.match')
+        echo "  line $ln ($dir)" >&2
+    end
+    echo "  this repository is brand-neutral; rephrase the message without naming the company" >&2
+    exit 1
+end
+
+exit 0

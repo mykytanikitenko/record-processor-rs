@@ -1,0 +1,13 @@
+id: error-slot-assoc
+language: Rust
+severity: info
+message: "error slot: an associated `type Error = E;` inside an impl block"
+rule:
+  all:
+    - kind: type_item
+    - has:
+        field: name
+        regex: '^Error$'
+    - inside:
+        kind: impl_item
+        stopBy: end

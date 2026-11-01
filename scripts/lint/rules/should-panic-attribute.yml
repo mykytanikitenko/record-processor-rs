@@ -1,0 +1,6 @@
+id: should-panic-attribute
+language: Rust
+severity: error
+message: "`#[should_panic]` marks a test that is expected to panic; tests must not panic. Remove the attribute and assert error returns instead."
+rule:
+  pattern: "#[should_panic]"

@@ -1,0 +1,3 @@
+description = "The transaction column exceeds the u32 maximum (4294967295)."
+derivation = "The transaction value 4294967296 exceeds the u32 maximum, so deserialization fails; the malformed-row policy aborts the run with a non-zero exit and empty stdout."
+outcome = "error"
