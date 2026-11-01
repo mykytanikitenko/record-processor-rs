@@ -20,15 +20,16 @@ fn path(name: &str) -> PathBuf {
 mod tests {
     use allocator_api2::alloc::Global;
     use futures_util::future::join;
-    use std::path::PathBuf;
+    use rudzio::context::Test as _;
     use storage::file_queue::{FileAppendError, FileNextBatchError, Parts};
     use storage::{FileQueue, Offset, Queue as _};
     use tokio_util::sync::CancellationToken;
+    use tokio_util::task::TaskTracker;
 
     use super::{CAPACITY, path};
 
     /// Open and size the backing file, then map it into a queue of `u32`s.
-    async fn queue(name: &str) -> anyhow::Result<(FileQueue<u32, Global>, PathBuf)> {
+    async fn queue(name: &str, tracker: &TaskTracker) -> anyhow::Result<FileQueue<u32, Global>> {
         let backing = path(name);
         let file = compio::fs::OpenOptions::new()
             .read(true)
@@ -41,16 +42,18 @@ mod tests {
         let queue = FileQueue::try_from(Parts {
             alloc: Global,
             file,
+            path: backing,
+            tracker: tracker.clone(),
             capacity: CAPACITY,
         })?;
-        Ok((queue, backing))
+        Ok(queue)
     }
 
     #[rudzio::test]
     async fn append_returns_offset_of_first_record(
-        _ctx: &rudzio::common::context::Test,
+        ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let (queue, backing) = queue("append_returns_offset").await?;
+        let queue = queue("append_returns_offset", ctx.tracker()).await?;
         let cancel = CancellationToken::new();
         let first = queue.append(&[10, 11, 12], &cancel).await?;
         let second = queue.append(&[20, 21], &cancel).await?;
@@ -66,15 +69,14 @@ mod tests {
                 ),
             "unexpected offsets {first:?} {second:?} {empty:?} {third:?}"
         );
-        compio::fs::remove_file(&backing).await?;
         Ok(())
     }
 
     #[rudzio::test]
     async fn next_batch_from_zero_and_mid_segment(
-        _ctx: &rudzio::common::context::Test,
+        ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let (queue, backing) = queue("next_batch_from_zero").await?;
+        let queue = queue("next_batch_from_zero", ctx.tracker()).await?;
         let cancel = CancellationToken::new();
         let _first: Offset = queue.append(&[10, 11, 12], &cancel).await?;
         let _second: Offset = queue.append(&[20, 21], &cancel).await?;
@@ -87,15 +89,14 @@ mod tests {
                 == (&[10, 11, 12][..], &[11, 12][..], &[20, 21][..], &[21][..]),
             "unexpected batches {from_zero:?} {mid_first:?} {second_start:?} {second_mid:?}"
         );
-        compio::fs::remove_file(&backing).await?;
         Ok(())
     }
 
     #[rudzio::test]
     async fn next_batch_wakes_after_append(
-        _ctx: &rudzio::common::context::Test,
+        ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let (queue, backing) = queue("next_batch_wakes").await?;
+        let queue = queue("next_batch_wakes", ctx.tracker()).await?;
         let cancel = CancellationToken::new();
         let (batch_result, appended_result) = join(
             queue.next_batch(Offset::from(0), &cancel),
@@ -108,15 +109,14 @@ mod tests {
             (batch, appended) == (&[7, 8][..], Offset::from(0)),
             "unexpected wake result {batch:?} {appended:?}"
         );
-        compio::fs::remove_file(&backing).await?;
         Ok(())
     }
 
     #[rudzio::test]
     async fn slices_stay_valid_across_many_segments(
-        _ctx: &rudzio::common::context::Test,
+        ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let (queue, backing) = queue("slices_stay_valid").await?;
+        let queue = queue("slices_stay_valid", ctx.tracker()).await?;
         let cancel = CancellationToken::new();
         let _head: Offset = queue.append(&[1, 2, 3], &cancel).await?;
         let early = queue.next_batch(Offset::from(1), &cancel).await?;
@@ -128,15 +128,14 @@ mod tests {
             (early, tail) == (&[2, 3][..], &[7, 8][..]),
             "unexpected slices {early:?} {tail:?}"
         );
-        compio::fs::remove_file(&backing).await?;
         Ok(())
     }
 
     #[rudzio::test]
     async fn cancelled_append_is_rejected(
-        _ctx: &rudzio::common::context::Test,
+        ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let (queue, backing) = queue("cancelled_append").await?;
+        let queue = queue("cancelled_append", ctx.tracker()).await?;
         let cancel = CancellationToken::new();
         cancel.cancel();
         let appended = queue.append(&[1], &cancel).await;
@@ -144,15 +143,14 @@ mod tests {
             appended == Err(FileAppendError::Cancelled),
             "expected Cancelled, got {appended:?}"
         );
-        compio::fs::remove_file(&backing).await?;
         Ok(())
     }
 
     #[rudzio::test]
     async fn cancellation_ends_waiting_next_batch(
-        _ctx: &rudzio::common::context::Test,
+        ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
-        let (queue, backing) = queue("cancellation_ends_wait").await?;
+        let queue = queue("cancellation_ends_wait", ctx.tracker()).await?;
         let cancel = CancellationToken::new();
         let (batch, ()) = join(queue.next_batch(Offset::from(0), &cancel), async {
             cancel.cancel();
@@ -162,7 +160,27 @@ mod tests {
             batch == Err(FileNextBatchError::Cancelled),
             "expected Cancelled, got {batch:?}"
         );
-        compio::fs::remove_file(&backing).await?;
+        Ok(())
+    }
+
+    #[rudzio::test]
+    async fn drop_schedules_backing_file_removal(
+        _ctx: &rudzio::common::context::Test,
+    ) -> anyhow::Result<()> {
+        // A dedicated tracker lets this test close-and-wait to assert removal
+        // deterministically; the suite-shared tracker the other tests reuse
+        // only drains at suite teardown.
+        let tracker = TaskTracker::new();
+        let backing = path("drop_schedules_removal");
+        let queue = queue("drop_schedules_removal", &tracker).await?;
+        anyhow::ensure!(backing.exists(), "backing file should exist before drop");
+        drop(queue);
+        let _closed: bool = tracker.close();
+        tracker.wait().await;
+        anyhow::ensure!(
+            !backing.exists(),
+            "backing file should be removed after drop"
+        );
         Ok(())
     }
 }
