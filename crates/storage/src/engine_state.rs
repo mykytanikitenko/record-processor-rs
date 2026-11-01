@@ -47,15 +47,6 @@ pub struct KvState<'kv, O, C> {
 
 /// The engine state: the queue offset processed so far and every client's
 /// account state.
-#[cfg_attr(
-    feature = "mocks",
-    mockall::automock(
-        type CommitOffsetError = crate::mocks::MockCommitOffsetError;
-        type CurrentOffsetError = crate::mocks::MockCurrentOffsetError;
-        type StateLoadError = crate::mocks::MockStateLoadError;
-        type StateUpdateError = crate::mocks::MockStateUpdateError;
-    )
-)]
 pub trait State {
     /// The error produced by [`State::commit_offset`].
     type CommitOffsetError: Error;
@@ -67,32 +58,53 @@ pub trait State {
     type StateUpdateError: Error;
 
     /// Record `offset` as the offset processed so far.
-    async fn commit_offset(
+    fn commit_offset(
         &self,
         offset: Offset,
         cancel: &CancellationToken,
-    ) -> Result<(), Self::CommitOffsetError>;
+    ) -> impl Future<Output = Result<(), Self::CommitOffsetError>>;
 
     /// Return the committed offset, or `None` before the first commit.
-    async fn current_offset(
+    fn current_offset(
         &self,
         cancel: &CancellationToken,
-    ) -> Result<Option<Offset>, Self::CurrentOffsetError>;
+    ) -> impl Future<Output = Result<Option<Offset>, Self::CurrentOffsetError>>;
 
     /// Return the state stored for `client`, or `None` when absent.
-    async fn load(
+    fn load(
         &self,
         client: ClientId,
         cancel: &CancellationToken,
-    ) -> Result<Option<ClientState>, Self::StateLoadError>;
+    ) -> impl Future<Output = Result<Option<ClientState>, Self::StateLoadError>>;
 
     /// Store `state` for `client`, replacing any previous state.
-    async fn update(
+    fn update(
         &self,
         client: ClientId,
         state: ClientState,
         cancel: &CancellationToken,
-    ) -> Result<(), Self::StateUpdateError>;
+    ) -> impl Future<Output = Result<(), Self::StateUpdateError>>;
+}
+
+#[cfg(feature = "mocks")]
+mockall::mock! {
+    #[derive(Debug)]
+    pub State {
+    }
+    impl State for State {
+        type CommitOffsetError = crate::mocks::MockCommitOffsetError;
+        type CurrentOffsetError = crate::mocks::MockCurrentOffsetError;
+        type StateLoadError = crate::mocks::MockStateLoadError;
+        type StateUpdateError = crate::mocks::MockStateUpdateError;
+
+        async fn commit_offset(&self, offset: Offset, cancel: &CancellationToken) -> Result<(), crate::mocks::MockCommitOffsetError>;
+
+        async fn current_offset(&self, cancel: &CancellationToken) -> Result<Option<Offset>, crate::mocks::MockCurrentOffsetError>;
+
+        async fn load(&self, client: ClientId, cancel: &CancellationToken) -> Result<Option<ClientState>, crate::mocks::MockStateLoadError>;
+
+        async fn update(&self, client: ClientId, state: ClientState, cancel: &CancellationToken) -> Result<(), crate::mocks::MockStateUpdateError>;
+    }
 }
 
 /// Failure to load a client's state.
