@@ -246,10 +246,9 @@ How the project is put together:
 - **Test-first.** Behaviour is driven from a failing test before the
   implementation; tests run through the `rudzio` runner under a line-coverage
   gate.
-- **Streaming by design (goal).** Records are processed one at a time rather
-  than loading the whole file, so the engine scales to arbitrarily large
-  inputs; transaction ids span the full `u32` range. *(Planned — engine not
-  yet implemented.)*
+- **Streaming by design.** Records are processed in bounded batches of borrowed
+  slices rather than loading the whole file, so the engine scales to
+  arbitrarily large inputs; transaction ids span the full `u32` range.
 - **Fixed-point money.** `rust_decimal` holds all amounts; floats are never
   used for money.
 - **Errors surfaced loudly.** Typed errors via `thiserror` propagate to the
@@ -259,92 +258,63 @@ How the project is put together:
   whose `total = available + held` invariant is enforced by the constructor.
 - **Malformed partner references ignored.** A `dispute`, `resolve`, or
   `chargeback` naming an unknown transaction, or a transaction not under
-  dispute, is ignored as a partner-side error. *(Planned.)*
+  dispute, is ignored as a partner-side error.
 
 ## Workspace layout
 
 | crate | responsibility | dependencies |
 | ------------------------ | --------------------------------- | --------------------------------------------- |
-| `record-processor` (bin) | thin entry, calls `cli` | `cli` |
-| `crates/domain` | transaction and account-balance models | `rust_decimal`, `serde`, `thiserror` |
-| `crates/storage` | persistence only: append-only queue and key-value state | `derive_more`, `thiserror` |
-| `crates/service` | all business rules, generic over the storage traits | `domain`, `storage`, `thiserror`, `tokio-util` |
-| `crates/transport` | stdio CSV reading and writing | `compio`, `domain`, `rust_decimal`, `service`, `thiserror`, `tokio-util` |
-| `crates/cli` | composition root: builds real storage, service and transport and wires them | `compio`, `domain`, `pico-args`, `service`, `storage`, `transport`, `thiserror`, `tokio-util` |
+| `record-processor` (bin) | thin entry, calls `cli` | `cli`, `thiserror` |
+| `crates/domain` | transaction and account-balance models | `derive_more`, `rust_decimal`, `serde`, `thiserror` |
+| `crates/storage` | persistence only: append-only queue, key-value store, engine state | `allocator-api2`, `compio`, `derive_more`, `event-listener`, `hashbrown`, `thiserror`, `tokio-util`, `record-processor-domain`, `mockall` (optional) |
+| `crates/service` | all business rules, generic over the storage traits | `record-processor-domain`, `rust_decimal`, `storage`, `thiserror`, `tokio-util`, `mockall` (optional) |
+| `crates/transport` | stdio CSV reading and writing | `allocator-api2`, `compio`, `rust_decimal`, `service`, `thiserror`, `tokio-util` |
+| `crates/cli` | composition root: builds the file-backed stores, wires them into the engine, drives `serve` | `allocator-api2`, `compio`, `futures-util`, `libc`, `pico-args`, `service`, `storage`, `thiserror`, `tokio-util`, `transport` |
 
-Shared workspace dependencies, pinned to exact versions: `anyhow` 1.0.104
-(dev), `compio` 0.19.2, `csv` 1.4.0, `mockall` 0.15.0 (dev, `service` only),
-`pico-args` 0.5.0, `rust_decimal` 1.43.0, `serde` 1.0.229, `thiserror` 2.0.21,
-`tokio-util` 0.7.20, and `rudzio` (git, the test runner).
+Dependencies are pinned to exact versions in the root `[workspace.dependencies]`,
+each with `default-features = false` and an explicit `features` list.
 
 ### Layering and trait contracts
 
-Every contract method returns its own error type, so a failure names the
-operation that produced it. Service stages take a `&CancellationToken`; worker
-jobs run on a `tokio_util::task::TaskTracker`.
+Every fallible method returns its own error type, so a failure names the
+operation that produced it; every operation takes a `&CancellationToken` for
+cooperative cancellation.
 
-**Storage** (`crates/storage`) has exactly two parts and decides nothing. It is
-tested by integration tests in `crates/storage/tests/` against the real
-backing; it has no mocks.
+**Storage** (`crates/storage`) exposes three `&self` async contracts, so a
+producer and its readers share one store by reference (the single-threaded
+runtime means no locks):
 
 | part | trait | method |
 | --- | --- | --- |
-| queue | `Append<T: Copy>` | `append(&self, batch: &[T]) -> Span` appends after the tail |
-| queue | `ReadAt<T: Copy>` | `read(&self, from: Position, into: &mut [T]) -> Span` copies into a caller-owned buffer |
-| kv | `Lookup<K: Copy, V: Copy>` | `read(&self, key: K) -> Option<V>` |
-| kv | `Update<K: Copy, V: Copy>` | `update(&self, key: K, value: &V)` |
-| kv | `Walk<K: Copy, V: Copy>` | `next_entry(&self, from: Slot) -> Option<Entry<K, V>>`, a lazy cursor walk |
+| queue | `Queue<T>` | `append(&self, batch: &[T]) -> Offset` appends a batch |
+| queue | `Queue<T>` | `next_batch(&self, since: Offset) -> &[T]` returns records from `since` as a slice borrowing the queue's storage |
+| kv | `Kv<K, V>` | `load(&self, key: K) -> Option<V>` |
+| kv | `Kv<K, V>` | `store(&self, key: K, value: V)` |
+| kv | `Kv<K, V>` | `next_key(&self, after: Option<K>) -> Option<K>`, the lazy ascending-key cursor |
+| state | `State` | the committed queue offset plus per-client account state, composed over two `Kv` stores |
 
-`Queue<T>` and `Kv<K, V>` are blanket umbrella traits over those parts.
-`Position` is a record index (a mmap backing derives the byte offset as
-`position * size_of::<T>()`); `Span` is a half-open `[start, end)` range of
-positions. Records and values are fixed-size `Copy` types so a memory-mapped
-backing stores them as slots. Methods take `&self` so a producer, readers and
-concurrent workers share one store by reference; a backing synchronises
-internally. `MmapQueue` and `MmapKv` are the production backings; every method
-returns a typed `Unimplemented` until the mmap store lands.
+The backings are `MemoryQueue`/`MemoryKv` (segments / `hashbrown::HashMap`) and
+the memory-mapped `FileQueue`/`FileKv`. Every backing threads an explicit
+`A: Allocator`, and each operation's error is a dedicated `thiserror` enum. See
+[For reviewers](#for-reviewers) for the detail.
 
-**Service** (`crates/service`) owns every rule: deposit, withdrawal, dispute,
-resolve, chargeback, routing of clients to worker jobs, and failed-transaction
-bookkeeping. `Engine<'store, Q, K> { queue: &Q, kv: &K }` borrows both stores
-and never names a backing. Each stage bounds only the operations it uses:
+**Service** (`crates/service`) owns every rule. `Consumer`
+(`crates/service/src/consumer.rs`) drains a `Transactions` slice stream into
+engine state and returns a lazy `Balances` stream; `Engine<Q, S>` is its
+production implementation, generic over `Q: Queue<Transaction>` and `S: State`.
+Engine state is service-owned (`ServiceState`, `TxRecord`, `TxKind`, `TxStatus`
+in `crates/service/src/engine_state.rs`), so storage stays free of business
+logic. Unit tests drive the engine against `mockall` doubles of the storage
+traits.
 
-| stage | bound | signature |
-| --- | --- | --- |
-| ingest | `Q: Append<Transaction>` | `ingest(&self, source: &mut impl TransactionStream, batch: &mut [Transaction], &CancellationToken) -> Span` |
-| aggregate | `Q: ReadAt<Transaction>`, `K: Lookup + Update` | `aggregate(&self, from: Position, ingested: Span, batch: &mut [Transaction], &TaskTracker, &CancellationToken)` |
-| balances | `K: Walk` | `balances(&self) -> Balances<'store, K>`, a lazy `BalanceStream` |
+**Transport** (`crates/transport`) adapts the hand-written CSV `Reader` into a
+`Transactions` stream and drives a `Consumer` toward a stdout `Writer` via
+`serve` (`crates/transport/src/stdio.rs`).
 
-Every stage body is a stub returning a typed `Unimplemented`. Unit tests in
-`crates/service/tests/` drive each stage against `mockall` doubles of the
-queue and kv traits.
-
-**Transport** (`crates/transport`) implements `TransactionStream` (the CSV
-`Reader`) and writes balances (`Writer`) over stdio or a file. There is one real
-implementation, and the traits leave room for other protocols.
-
-**CLI** (`crates/cli`) is the composition root. It constructs `MmapQueue` and
-`MmapKv`, lends them to `Engine`, and runs ingest, aggregate and balances over
-the transport reader and writer.
-
-### Open contract questions
-
-- **Duplicate transaction ids.** No dedicated storage part. Options: (a) the
-  service keeps a `Kv<TxId, TxRecord>` of seen ids, which it needs anyway for
-  disputes; (b) ingest filters before append using a lookup on that store;
-  (c) aggregate rejects a duplicate when applying it, recording it as a failed
-  transaction. (a)+(c) keeps the queue a faithful log of input.
-- **End of input.** No dedicated signal. Options: (a) the ingest stage
-  completing and returning the ingested `Span` is the signal (current
-  contract: aggregate runs after ingest); (b) aggregate runs concurrently and
-  tails the queue, so it needs a way to learn the final end, e.g. a sentinel
-  `Transaction::Eof` record appended last.
-- **Kv value type.** The output row `AccountBalance` cannot hold disputed
-  transaction amounts. The service likely defines its own fixed-size client
-  record and a separate per-transaction record; storage stays generic over `V`.
-- **Position semantics.** Positions are record indices from queue start and
-  never reused; whether a backing needs a committed-position marker for
-  restart is undecided.
+**CLI** (`crates/cli`) is the composition root. It opens PID-unique backing
+files, builds `FileQueue` and two `FileKv` stores, wires them into `Engine`,
+and runs `transport::serve`, selecting SIGINT/SIGTERM against the pipeline for
+cooperative cancellation.
 
 ## Development
 
@@ -409,12 +379,8 @@ Recorded decisions, each with the reasoning that settled it:
 
 ## Status
 
-The step-1 traits contract is landed: `service`, `transport`, and `storage`
-traits with `Real`/`Mock` dispatch, cancellation plumbing, and CLI wiring are
-in place; `just build` and `just lint` are green. The transport layer is being
-rewritten (Compio `Framed` + `csv-core`). The engine (business logic) is not
-implemented — `serve` is a contract stub returning `EngineError::Unimplemented`
-— so the e2e success fixtures fail until the engine lands.
+Engine implemented: 89 end-to-end fixtures and 156 tests green; `just lint` and
+`just test` pass.
 
 ## End-to-end tests
 
@@ -512,16 +478,13 @@ checked-in `expected.csv`.
 ### Implementation questions
 
 - **`failed-transaction-bookkeeping`** — a failure in a single event must not
-  stop the pipeline; per-client state records failed transactions (tx id, kind,
-  reason) — format and output exposure undecided.
-  - Current behaviour: not implemented — no per-client failed-transaction state
-    exists.
-  - Decided in: not implemented yet.
-- **`duplicate-tx-id-dedup-index`** — duplicate tx id handling in the storage
-  dedup index (error) vs the fixture 084 question above.
-  - Current behaviour: the storage dedup index `Index::insert` returns
-    `IndexError::Duplicate(TxId)` for a reused transaction id.
-  - Decided in: `crates/storage/src/dedup.rs:11`.
+  stop the pipeline; the transaction store retains failed transactions so later
+  events can reference them.
+  - Current behaviour: a failed withdrawal is still recorded in the transaction
+    store (`TxRecord`, kind `Withdrawal`); no separate `reason` field is stored,
+    and failed transactions are not emitted.
+  - Decided in: `crates/service/src/engine_state.rs` (`TxRecord`),
+    `crates/service/src/consumer.rs`.
 
 ## License
 
