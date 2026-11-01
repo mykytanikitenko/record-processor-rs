@@ -7,6 +7,7 @@ use futures_util::future::Either;
 use service::engine_state::KvState;
 use service::{ClientId, EngineParts, ServiceState, State, Transaction, TxId, TxRecord};
 use std::hash::RandomState;
+use std::os::unix::ffi::OsStrExt as _;
 use storage::file_kv::{
     EnumerateError, FetchError, FileKv, MapError, Parts as FileKvParts, WriteError,
 };
@@ -200,6 +201,9 @@ pub enum BackingFileError {
     /// The reservation does not fit the backing-file length type.
     #[error("the reservation does not fit the backing-file length: {0}")]
     Length(#[from] core::num::TryFromIntError),
+    /// The backing-file name does not fit the fixed name buffer.
+    #[error("the backing-file name does not fit the fixed name buffer")]
+    Overflow,
 }
 
 /// Wait for either SIGINT or SIGTERM, then cancel the token.
@@ -223,9 +227,55 @@ async fn open_backing_file(
     name: &str,
     capacity: usize,
 ) -> Result<compio::fs::File, BackingFileError> {
-    // TODO(lint/no-implicit-alloc): implicit heap allocation via `format!`; use
-    // a memory-mapped, reused-buffer, or borrowed alternative
-    let path = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+    // Render the process-unique backing-file name `"{name}-{pid}"` into a fixed
+    // stack buffer — no heap allocation and no owned-string conversion. `u32`
+    // has at most ten decimal digits and every caller passes a short literal
+    // `name`, so the fixed buffer is ample; a name that would not fit is
+    // reported as `Overflow` rather than being silently truncated.
+    let mut buf = [0_u8; 64];
+    let name_len = name.len();
+    let separator = name_len.checked_add(1).ok_or(BackingFileError::Overflow)?;
+    let total = separator
+        .checked_add(10)
+        .ok_or(BackingFileError::Overflow)?;
+    if total > buf.len() {
+        return Err(BackingFileError::Overflow);
+    }
+    buf.get_mut(..name_len)
+        .ok_or(BackingFileError::Overflow)?
+        .copy_from_slice(name.as_bytes());
+    *buf.get_mut(name_len).ok_or(BackingFileError::Overflow)? = b'-';
+
+    // The decimal digits of the process id, least significant last.
+    let mut digits = [0_u8; 10];
+    let mut value = std::process::id();
+    let mut digit_len = digits.len();
+    loop {
+        digit_len = digit_len.checked_sub(1).ok_or(BackingFileError::Overflow)?;
+        let rem = value.checked_rem(10).ok_or(BackingFileError::Overflow)?;
+        let digit = u8::try_from(rem).map_err(|_overflow| BackingFileError::Overflow)?;
+        let byte = b'0'.checked_add(digit).ok_or(BackingFileError::Overflow)?;
+        *digits
+            .get_mut(digit_len)
+            .ok_or(BackingFileError::Overflow)? = byte;
+        value = value.checked_div(10).ok_or(BackingFileError::Overflow)?;
+        if value == 0 {
+            break;
+        }
+    }
+    let digit_count = digits
+        .len()
+        .checked_sub(digit_len)
+        .ok_or(BackingFileError::Overflow)?;
+    let end = separator
+        .checked_add(digit_count)
+        .ok_or(BackingFileError::Overflow)?;
+    buf.get_mut(separator..end)
+        .ok_or(BackingFileError::Overflow)?
+        .copy_from_slice(digits.get(digit_len..).ok_or(BackingFileError::Overflow)?);
+    let component = std::ffi::OsStr::from_bytes(buf.get(..end).ok_or(BackingFileError::Overflow)?);
+    let path = std::env::temp_dir().join(component);
+
     let file = compio::fs::OpenOptions::new()
         .read(true)
         .write(true)
