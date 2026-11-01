@@ -20,20 +20,20 @@ pub trait Queue<T> {
 
     /// Append every record of `batch` after the current tail, returning the
     /// offset of the first appended record.
-    async fn append(
+    fn append(
         &self,
         batch: &[T],
         cancel: &CancellationToken,
-    ) -> Result<Offset, Self::AppendError>;
+    ) -> impl Future<Output = Result<Offset, Self::AppendError>>;
 
     /// Return the records starting at `since`, waiting until the record at
     /// `since` has been appended. The slice borrows the queue's storage, so
     /// consumers read records in place.
-    async fn next_batch<'queue>(
+    fn next_batch<'queue>(
         &'queue self,
         since: Offset,
         cancel: &CancellationToken,
-    ) -> Result<&'queue [T], Self::NextBatchError>
+    ) -> impl Future<Output = Result<&'queue [T], Self::NextBatchError>>
     where
         T: 'queue;
 }

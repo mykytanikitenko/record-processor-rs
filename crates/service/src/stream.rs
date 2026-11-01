@@ -18,10 +18,10 @@ pub trait Transactions {
 
     /// Return the next batch of transactions, or `None` once the stream is
     /// exhausted.
-    async fn next_batch<'stream>(
+    fn next_batch<'stream>(
         &'stream mut self,
         cancel: &CancellationToken,
-    ) -> Result<Option<&'stream [Transaction]>, Self::Error>;
+    ) -> impl Future<Output = Result<Option<&'stream [Transaction]>, Self::Error>>;
 }
 
 /// A source of account-balance batches, read in place from the backing
@@ -38,8 +38,8 @@ pub trait Balances {
 
     /// Return the next batch of balances, or `None` once the stream is
     /// exhausted.
-    async fn next_batch<'stream>(
+    fn next_batch<'stream>(
         &'stream mut self,
         cancel: &CancellationToken,
-    ) -> Result<Option<&'stream [AccountBalance]>, Self::Error>;
+    ) -> impl Future<Output = Result<Option<&'stream [AccountBalance]>, Self::Error>>;
 }

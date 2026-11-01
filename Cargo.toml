@@ -147,7 +147,6 @@ unused_qualifications = "deny"
 unused_results = "deny"
 
 # Intentionally allowed
-async_fn_in_trait = "allow"        # compio is thread-per-core; async trait methods return !Send futures
 single_use_lifetimes = "allow"
 unsafe_code = "allow"              # establishing the mmap file queue requires unsafe
 variant_size_differences = "allow"

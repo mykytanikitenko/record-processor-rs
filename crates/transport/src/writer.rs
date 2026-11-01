@@ -155,10 +155,10 @@ pub trait Sink {
     type Error: Error;
 
     /// Flush the sink so every written byte reaches its destination.
-    async fn flush(&mut self) -> Result<(), Self::Error>;
+    fn flush(&mut self) -> impl Future<Output = Result<(), Self::Error>>;
 
     /// Write all of `bytes` to the sink.
-    async fn write_all<T>(&mut self, bytes: T) -> Result<(), Self::Error>
+    fn write_all<T>(&mut self, bytes: T) -> impl Future<Output = Result<(), Self::Error>>
     where
         T: IoBuf;
 }

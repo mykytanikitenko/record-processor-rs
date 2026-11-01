@@ -166,16 +166,6 @@ impl From<TxRecordParts> for TxRecord {
 }
 
 /// The engine state: per-client account state and the transaction lifecycle.
-#[cfg_attr(
-    feature = "mocks",
-    mockall::automock(
-        type LoadClientError = crate::mocks::MockLoadClientError;
-        type LoadTxError = crate::mocks::MockLoadTxError;
-        type StoreClientError = crate::mocks::MockStoreClientError;
-        type StoreTxError = crate::mocks::MockStoreTxError;
-        type ClientsError = crate::mocks::MockClientsError;
-    )
-)]
 pub trait State {
     /// The error produced by [`State::next_client`].
     type ClientsError: Error;
@@ -189,43 +179,67 @@ pub trait State {
     type StoreTxError: Error;
 
     /// Return the account state stored for `client`, or `None` when absent.
-    async fn load_client(
+    fn load_client(
         &self,
         client: ClientId,
         cancel: &CancellationToken,
-    ) -> Result<Option<ServiceState>, Self::LoadClientError>;
+    ) -> impl Future<Output = Result<Option<ServiceState>, Self::LoadClientError>>;
 
     /// Return the transaction lifecycle stored for `tx`, or `None` when absent.
-    async fn load_tx(
+    fn load_tx(
         &self,
         tx: TxId,
         cancel: &CancellationToken,
-    ) -> Result<Option<TxRecord>, Self::LoadTxError>;
+    ) -> impl Future<Output = Result<Option<TxRecord>, Self::LoadTxError>>;
 
     /// Return the smallest stored client strictly greater than `after`, in
     /// ascending client order, or `None` when `after` is the greatest client.
     /// Pass `None` to obtain the first client.
-    async fn next_client(
+    fn next_client(
         &self,
         after: Option<ClientId>,
         cancel: &CancellationToken,
-    ) -> Result<Option<(ClientId, ServiceState)>, Self::ClientsError>;
+    ) -> impl Future<Output = Result<Option<(ClientId, ServiceState)>, Self::ClientsError>>;
 
     /// Store `state` for `client`, replacing any previous account state.
-    async fn store_client(
+    fn store_client(
         &self,
         client: ClientId,
         state: ServiceState,
         cancel: &CancellationToken,
-    ) -> Result<(), Self::StoreClientError>;
+    ) -> impl Future<Output = Result<(), Self::StoreClientError>>;
 
     /// Store `state` for `tx`, replacing any previous transaction lifecycle.
-    async fn store_tx(
+    fn store_tx(
         &self,
         tx: TxId,
         state: TxRecord,
         cancel: &CancellationToken,
-    ) -> Result<(), Self::StoreTxError>;
+    ) -> impl Future<Output = Result<(), Self::StoreTxError>>;
+}
+
+#[cfg(feature = "mocks")]
+mockall::mock! {
+    #[derive(Debug)]
+    pub State {
+    }
+    impl State for State {
+        type ClientsError = crate::mocks::MockClientsError;
+        type LoadClientError = crate::mocks::MockLoadClientError;
+        type LoadTxError = crate::mocks::MockLoadTxError;
+        type StoreClientError = crate::mocks::MockStoreClientError;
+        type StoreTxError = crate::mocks::MockStoreTxError;
+
+        async fn load_client(&self, client: ClientId, cancel: &CancellationToken) -> Result<Option<ServiceState>, crate::mocks::MockLoadClientError>;
+
+        async fn load_tx(&self, tx: TxId, cancel: &CancellationToken) -> Result<Option<TxRecord>, crate::mocks::MockLoadTxError>;
+
+        async fn next_client(&self, after: Option<ClientId>, cancel: &CancellationToken) -> Result<Option<(ClientId, ServiceState)>, crate::mocks::MockClientsError>;
+
+        async fn store_client(&self, client: ClientId, state: ServiceState, cancel: &CancellationToken) -> Result<(), crate::mocks::MockStoreClientError>;
+
+        async fn store_tx(&self, tx: TxId, state: TxRecord, cancel: &CancellationToken) -> Result<(), crate::mocks::MockStoreTxError>;
+    }
 }
 
 /// The [`State`] composed over a client store and a transaction store.
