@@ -1,12 +1,35 @@
 id: no-cloning
 language: Rust
 severity: error
-message: "cloning/copying out of a value sidesteps ownership/lifetime handling; restructure to borrow or propagate instead"
+message: "cloning/copying out of a value sidesteps ownership/lifetime handling; restructure to borrow or propagate instead. `TaskTracker` is an `Arc`-backed shared handle — cloning it is the sanctioned way to share one tracker across mmap backends and test helpers, and copies no data."
 rule:
   any:
     - pattern: $X.to_owned()
     - pattern: $X.to_string()
-    - pattern: $X.clone()
+    # A `TaskTracker` (receiver named `tracker`/`*_tracker`) is a cheap shared
+    # handle, not data: the mmap backends each own a clone so their `Drop` can
+    # schedule `compio::runtime::spawn(tracker.track_future(..))` cleanup, and
+    # the CLI/test suite close-and-wait the shared tracker. ast-grep has no
+    # type information, so "is a TaskTracker" is approximated by receiver name,
+    # mirroring `no-tokio-runtime`'s `tokio-tracker-spawn` rule.
+    - kind: call_expression
+      has:
+        field: function
+        all:
+          - kind: field_expression
+          - has:
+              field: field
+              regex: '^clone$'
+          - not:
+              has:
+                field: value
+                any:
+                  - kind: identifier
+                    regex: '^(tracker|.+_tracker)$'
+                  - kind: field_expression
+                    has:
+                      field: field
+                      regex: '^(tracker|.+_tracker)$'
     - pattern: "ToOwned::to_owned"
     - pattern: "ToString::to_string"
     - pattern: "Clone::clone"

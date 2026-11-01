@@ -2,6 +2,9 @@ id: no-cloning
 valid:
   - "let y = &x;"
   - "let s: &str = &owned_string;"
+  - "tracker.clone()"
+  - "self.tracker.clone()"
+  - "foo_tracker.clone()"
 invalid:
   - "a.to_owned()"
   - "a.to_string()"
