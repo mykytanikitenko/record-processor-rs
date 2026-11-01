@@ -4,6 +4,7 @@
 use allocator_api2::alloc::Allocator;
 use allocator_api2::boxed::Box;
 use compio::io::AsyncRead;
+use core::mem::MaybeUninit;
 use service::stream::Balances;
 use service::{Consumer, Transaction};
 use tokio_util::sync::CancellationToken;
@@ -16,10 +17,6 @@ use crate::writer::{WriteBatchError, Writer};
 /// yield.
 const BATCH: usize = 1024;
 
-/// A `BATCH`-sized fill of end-of-input sentinels, copied into the reused
-/// buffer on construction.
-static EOFFILL: [Transaction; BATCH] = [Transaction::Eof; BATCH];
-
 /// Adapts the CSV [`Reader`] into a [`service::stream::Transactions`] slice
 /// stream.
 ///
@@ -28,7 +25,7 @@ static EOFFILL: [Transaction; BATCH] = [Transaction::Eof; BATCH];
 #[derive(Debug)]
 pub struct Transactions<S, A>
 where
-    A: Allocator + Default,
+    A: Allocator,
 {
     /// The reused batch buffer.
     buffer: Box<[Transaction], A>,
@@ -38,14 +35,32 @@ where
     reader: Reader<S>,
 }
 
-impl<S, A> From<Input<S>> for Transactions<S, A>
+/// Construction input for [`Transactions`].
+#[derive(Debug)]
+pub struct Parts<S, A> {
+    /// The allocator the reused batch buffer is allocated in.
+    pub alloc: A,
+    /// The owned byte source the adapter reads.
+    pub input: Input<S>,
+}
+
+impl<S, A> From<Parts<S, A>> for Transactions<S, A>
 where
-    A: Allocator + Default,
+    A: Allocator,
 {
     #[inline]
-    fn from(input: Input<S>) -> Self {
+    fn from(parts: Parts<S, A>) -> Self {
+        let Parts { input, alloc } = parts;
+        let mut uninit = Box::<[Transaction], A>::new_uninit_slice_in(BATCH, alloc);
+        for slot in uninit.iter_mut() {
+            *slot = MaybeUninit::new(Transaction::Eof);
+        }
+        // SAFETY: every slot of the batch buffer has been initialised with a
+        // `Transaction::Eof` sentinel above, so reading the buffer as
+        // `[Transaction]` is sound.
+        let buffer = unsafe { uninit.assume_init() };
         Self {
-            buffer: Box::<[Transaction], A>::from(EOFFILL.as_slice()),
+            buffer,
             exhausted: false,
             reader: Reader::from(input),
         }
@@ -67,7 +82,7 @@ pub enum ReadBatchError {
 impl<S, A> service::stream::Transactions for Transactions<S, A>
 where
     S: AsyncRead,
-    A: Allocator + Default,
+    A: Allocator,
 {
     type Error = ReadBatchError;
 
@@ -115,7 +130,7 @@ pub enum ServeError<C, S, A>
 where
     C: Consumer<Transactions<S, A>>,
     S: AsyncRead,
-    A: Allocator + Default,
+    A: Allocator,
 {
     /// Reading the next balance batch failed.
     #[error("reading the balance stream failed: {0}")]
@@ -143,14 +158,15 @@ where
 pub async fn serve<C, S, A>(
     consumer: C,
     input: Input<S>,
+    alloc: A,
     cancel: &CancellationToken,
 ) -> Result<(), ServeError<C, S, A>>
 where
     C: Consumer<Transactions<S, A>>,
     S: AsyncRead,
-    A: Allocator + Default,
+    A: Allocator,
 {
-    let mut transactions = Transactions::<S, A>::from(input);
+    let mut transactions = Transactions::<S, A>::from(Parts { alloc, input });
     let mut balances = consumer
         .consume(cancel, &mut transactions)
         .await

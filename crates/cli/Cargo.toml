@@ -12,7 +12,7 @@ repository.workspace = true
 autotests = false
 
 [dependencies]
-allocator-api2 = { workspace = true }
+bumpalo = { workspace = true }
 compio = { workspace = true }
 futures-util = { workspace = true }
 libc = { workspace = true }

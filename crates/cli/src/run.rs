@@ -1,20 +1,25 @@
 //! Command-line wiring: parse arguments, build the runtime, and drive the
 //! payments engine to stdout with cooperative cancellation.
 
-use allocator_api2::alloc::Global;
-use allocator_api2::boxed::Box;
+use bumpalo::Bump;
 use futures_util::future::Either;
 use service::engine_state::KvState;
-use service::{ClientId, EngineParts, ServiceState, State, Transaction, TxId, TxRecord};
+use service::{
+    ClientId, ClientsError, EngineParts, LoadClientError, LoadTxError, OverflowError, ServiceState,
+    State, StoreClientError, StoreTxError, Transaction, TxId, TxRecord,
+};
 use std::hash::RandomState;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::PathBuf;
 use storage::file_kv::{
     EnumerateError, FetchError, FileKv, MapError, Parts as FileKvParts, WriteError,
 };
-use storage::file_queue::{FileQueue, OpenError, Parts as FileQueueParts};
+use storage::file_queue::{
+    FileAppendError, FileNextBatchError, FileQueue, OpenError, Parts as FileQueueParts,
+};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
+use transport::{ReadBatchError, StdoutError, StdoutSinkError, Transactions, WriteBatchError};
 
 /// Byte length of the transaction queue's fixed backing reservation.
 ///
@@ -33,31 +38,39 @@ const QUEUE_CAPACITY: usize = 1 << 31;
 /// the reservation is cheap until records are actually written.
 const KV_CAPACITY: usize = 1 << 31;
 
+/// Initial byte reservation of the arena that backs the storage index and the
+/// transaction batch buffer.
+///
+/// The arena holds the per-key indexes and the reused transaction batch, not
+/// the mapped record data itself; it grows (and never shrinks) as entries are
+/// appended, so this is a warm-up hint rather than a correctness bound.
+const ARENA_CAPACITY: usize = 1 << 20;
+
 /// The memory-mapped, file-backed store of each client's account state.
-type Clients = FileKv<ClientId, ServiceState, RandomState, Global>;
+type Clients<'bump> = FileKv<ClientId, ServiceState, RandomState, &'bump Bump>;
 /// The memory-mapped, file-backed store of each transaction's lifecycle.
-type Records = FileKv<TxId, TxRecord, RandomState, Global>;
+type Records<'bump> = FileKv<TxId, TxRecord, RandomState, &'bump Bump>;
 /// The memory-mapped, file-backed transaction queue.
-type Queue = FileQueue<Transaction, Global>;
+type Queue<'bump> = FileQueue<Transaction, &'bump Bump>;
 /// The payments engine over the memory-mapped queue and file-backed state.
-type Engine = service::Engine<Queue, MemoryState>;
+type Engine<'bump> = service::Engine<Queue<'bump>, MemoryState<'bump>>;
 
 /// The engine state: per-client account state and the transaction lifecycle,
 /// both held in memory-mapped, file-backed stores.
 #[derive(Debug)]
-struct MemoryState {
+struct MemoryState<'bump> {
     /// The store holding each client's account state.
-    clients: Clients,
+    clients: Clients<'bump>,
     /// The store holding each transaction's lifecycle.
-    records: Records,
+    records: Records<'bump>,
 }
 
-impl State for MemoryState {
-    type ClientsError = service::ClientsError<EnumerateError, FetchError>;
-    type LoadClientError = service::LoadClientError<FetchError>;
-    type LoadTxError = service::LoadTxError<FetchError>;
-    type StoreClientError = service::StoreClientError<WriteError>;
-    type StoreTxError = service::StoreTxError<WriteError>;
+impl State for MemoryState<'_> {
+    type ClientsError = ClientsError<EnumerateError, FetchError>;
+    type LoadClientError = LoadClientError<FetchError>;
+    type LoadTxError = LoadTxError<FetchError>;
+    type StoreClientError = StoreClientError<WriteError>;
+    type StoreTxError = StoreTxError<WriteError>;
 
     #[inline]
     async fn load_client(
@@ -172,10 +185,6 @@ pub enum ServeInputError {
 }
 
 /// Failure while processing a single input source.
-///
-/// The engine's concrete error type is parameterised over the private
-/// [`MemoryState`], so it is erased into a boxed error rather than leaking the
-/// composition detail through the public [`RunError`] surface.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ProcessError {
@@ -189,8 +198,184 @@ pub enum ProcessError {
     #[error("opening the transaction queue failed: {0}")]
     Queue(#[source] OpenError),
     /// Serving the transaction stream through the engine failed.
-    #[error("serving the transaction stream failed: {0}")]
-    Serve(#[source] Box<dyn std::error::Error + Send + Sync>),
+    #[error(transparent)]
+    Serve(#[from] ServeError),
+}
+
+/// Failure while serving the transaction stream through the engine.
+///
+/// The service and transport layers parameterise their error types over the
+/// concrete state, queue, and allocator; the CLI owns those concrete choices,
+/// so it flattens them into one non-generic enum that names each layer's
+/// concrete error without leaking the composition detail through the public
+/// [`RunError`] surface.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ServeError {
+    /// Reading the next balance batch failed.
+    #[error("reading the balance stream failed: {0}")]
+    Balance(BalanceError),
+    /// Draining the transaction stream into balances failed.
+    #[error("consuming the transaction stream failed: {0}")]
+    Consume(ConsumeError),
+    /// Opening the standard output failed.
+    #[error("opening the standard output failed: {0}")]
+    Stdout(StdoutError),
+    /// A serve error variant this CLI build does not recognise.
+    #[error("unrecognised serve error")]
+    Unrecognised,
+    /// Writing a balance batch to stdout failed.
+    #[error("writing the balance stream failed: {0}")]
+    Write(WriteBatchError<StdoutSinkError>),
+}
+
+/// Failure while projecting a balance row from the engine state.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum BalanceError {
+    /// Enumerating the client records failed.
+    #[error("enumerating the client records failed: {0}")]
+    Clients(ClientsError<EnumerateError, FetchError>),
+    /// Projecting a client's balance total overflowed.
+    #[error(transparent)]
+    Overflow(#[from] OverflowError),
+    /// A balance error variant this CLI build does not recognise.
+    #[error("unrecognised balance error")]
+    Unrecognised,
+}
+
+/// Failure while draining the transaction stream into a balance stream.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ConsumeError {
+    /// Appending a transaction batch to the queue failed.
+    #[error("appending a transaction batch failed: {0}")]
+    Append(FileAppendError),
+    /// Applying a transaction to the engine state failed.
+    #[error(transparent)]
+    Apply(#[from] ApplyError),
+    /// Reading the next transaction batch failed.
+    #[error("reading the next transaction batch failed: {0}")]
+    NextBatch(FileNextBatchError),
+    /// The queue offset overflowed.
+    #[error("the queue offset overflowed")]
+    OffsetOverflow,
+    /// The batch length no longer fits the offset type.
+    #[error("the batch length no longer fits the offset type: {0}")]
+    OffsetWiden(#[from] core::num::TryFromIntError),
+    /// Reading the transaction stream failed.
+    #[error("reading the transaction stream failed: {0}")]
+    Stream(ReadBatchError),
+    /// A consume error variant this CLI build does not recognise.
+    #[error("unrecognised consume error")]
+    Unrecognised,
+}
+
+/// Failure to apply one transaction to the engine state.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ApplyError {
+    /// Loading a client's account state failed.
+    #[error("loading the client state failed: {0}")]
+    LoadClient(LoadClientError<FetchError>),
+    /// Loading a transaction's lifecycle failed.
+    #[error("loading the transaction state failed: {0}")]
+    LoadTx(LoadTxError<FetchError>),
+    /// A referenced transaction's client had no account state.
+    #[error("client {client:?} has a transaction but no account state")]
+    MissingAccount {
+        /// The client whose account state is absent.
+        client: ClientId,
+    },
+    /// Account arithmetic overflowed while applying a transaction.
+    #[error("account arithmetic overflowed for client {client:?}")]
+    Overflow {
+        /// The client whose balance overflowed.
+        client: ClientId,
+    },
+    /// Storing a client's account state failed.
+    #[error("storing the client state failed: {0}")]
+    StoreClient(StoreClientError<WriteError>),
+    /// Storing a transaction's lifecycle failed.
+    #[error("storing the transaction state failed: {0}")]
+    StoreTx(StoreTxError<WriteError>),
+    /// An apply error variant this CLI build does not recognise.
+    #[error("unrecognised apply error")]
+    Unrecognised,
+    /// The transaction kind is not recognised by this engine version.
+    #[error("unsupported transaction kind")]
+    Unsupported,
+}
+
+impl<'bump> From<service::ApplyError<MemoryState<'bump>>> for ApplyError {
+    #[inline]
+    fn from(source: service::ApplyError<MemoryState<'bump>>) -> Self {
+        match source {
+            service::ApplyError::LoadClient(error) => Self::LoadClient(error),
+            service::ApplyError::LoadTx(error) => Self::LoadTx(error),
+            service::ApplyError::MissingAccount { client } => Self::MissingAccount { client },
+            service::ApplyError::Overflow { client } => Self::Overflow { client },
+            service::ApplyError::StoreClient(error) => Self::StoreClient(error),
+            service::ApplyError::StoreTx(error) => Self::StoreTx(error),
+            service::ApplyError::Unsupported => Self::Unsupported,
+            _ => Self::Unrecognised,
+        }
+    }
+}
+
+impl<'bump> From<service::BalanceError<MemoryState<'bump>>> for BalanceError {
+    #[inline]
+    fn from(source: service::BalanceError<MemoryState<'bump>>) -> Self {
+        match source {
+            service::BalanceError::Clients(error) => Self::Clients(error),
+            service::BalanceError::Overflow(error) => Self::Overflow(error),
+            _ => Self::Unrecognised,
+        }
+    }
+}
+
+impl<'bump>
+    From<
+        service::ConsumeError<
+            Queue<'bump>,
+            MemoryState<'bump>,
+            Transactions<compio::fs::Stdin, &'bump Bump>,
+        >,
+    > for ConsumeError
+{
+    #[inline]
+    fn from(
+        source: service::ConsumeError<
+            Queue<'bump>,
+            MemoryState<'bump>,
+            Transactions<compio::fs::Stdin, &'bump Bump>,
+        >,
+    ) -> Self {
+        match source {
+            service::ConsumeError::Append(error) => Self::Append(error),
+            service::ConsumeError::Apply(error) => Self::Apply(error.into()),
+            service::ConsumeError::NextBatch(error) => Self::NextBatch(error),
+            service::ConsumeError::OffsetOverflow => Self::OffsetOverflow,
+            service::ConsumeError::OffsetWiden(error) => Self::OffsetWiden(error),
+            service::ConsumeError::Stream(error) => Self::Stream(error),
+            _ => Self::Unrecognised,
+        }
+    }
+}
+
+impl<'bump> From<transport::ServeError<Engine<'bump>, compio::fs::Stdin, &'bump Bump>>
+    for ServeError
+{
+    #[inline]
+    fn from(source: transport::ServeError<Engine<'bump>, compio::fs::Stdin, &'bump Bump>) -> Self {
+        match source {
+            transport::ServeError::Balance(error) => Self::Balance(error.into()),
+            transport::ServeError::Consume(error) => Self::Consume(error.into()),
+            transport::ServeError::Stdout(error) => Self::Stdout(error),
+            transport::ServeError::Write(error) => Self::Write(error),
+            _ => Self::Unrecognised,
+        }
+    }
 }
 
 /// Failure while opening or sizing a backing file.
@@ -296,10 +481,11 @@ async fn process(
     token: &CancellationToken,
     tracker: &TaskTracker,
 ) -> Result<(), ProcessError> {
+    let bump = Bump::with_capacity(ARENA_CAPACITY);
     let (clients_file, clients_path) =
         open_backing_file("record-processor-clients", KV_CAPACITY).await?;
-    let clients: Clients = FileKv::try_from(FileKvParts {
-        alloc: Global,
+    let clients: Clients<'_> = FileKv::try_from(FileKvParts {
+        alloc: &bump,
         hasher: RandomState::new(),
         file: clients_file,
         path: clients_path,
@@ -309,8 +495,8 @@ async fn process(
     .map_err(ProcessError::Kv)?;
     let (records_file, records_path) =
         open_backing_file("record-processor-records", KV_CAPACITY).await?;
-    let records: Records = FileKv::try_from(FileKvParts {
-        alloc: Global,
+    let records: Records<'_> = FileKv::try_from(FileKvParts {
+        alloc: &bump,
         hasher: RandomState::new(),
         file: records_file,
         path: records_path,
@@ -320,8 +506,8 @@ async fn process(
     .map_err(ProcessError::Kv)?;
     let (queue_file, queue_path) =
         open_backing_file("record-processor-queue", QUEUE_CAPACITY).await?;
-    let queue: Queue = FileQueue::try_from(FileQueueParts {
-        alloc: Global,
+    let queue: Queue<'_> = FileQueue::try_from(FileQueueParts {
+        alloc: &bump,
         file: queue_file,
         path: queue_path,
         tracker: tracker.clone(),
@@ -330,9 +516,9 @@ async fn process(
     .map_err(ProcessError::Queue)?;
     let state = MemoryState { clients, records };
     let engine = Engine::from(EngineParts { queue, state });
-    transport::serve::<_, _, Global>(engine, source, token)
+    transport::serve::<_, _, &Bump>(engine, source, &bump, token)
         .await
-        .map_err(|error| ProcessError::Serve(Box::from(error)))?;
+        .map_err(ServeError::from)?;
     Ok(())
 }
 

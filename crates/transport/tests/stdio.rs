@@ -10,7 +10,7 @@ mod tests {
     use service::{Amount, ClientId, Transaction, Transactions as _, TxId};
     use std::str::FromStr as _;
     use tokio_util::sync::CancellationToken;
-    use transport::{Input, Transactions};
+    use transport::{Input, Parts, Transactions};
 
     /// Build a deposit transaction for an expected-value assertion.
     fn deposit(client: u16, tx: u32, amount: &str) -> anyhow::Result<Transaction> {
@@ -26,9 +26,12 @@ mod tests {
         _ctx: &rudzio::common::context::Test,
     ) -> anyhow::Result<()> {
         let token = CancellationToken::new();
-        let mut adapter = Transactions::<_, Global>::from(Input::Stream(
-            b"type,client,tx,amount\ndeposit,1,1,1.0\ndeposit,2,2,2.5\n".as_slice(),
-        ));
+        let mut adapter = Transactions::from(Parts {
+            alloc: Global,
+            input: Input::Stream(
+                b"type,client,tx,amount\ndeposit,1,1,1.0\ndeposit,2,2,2.5\n".as_slice(),
+            ),
+        });
 
         let expected = [deposit(1, 1, "1.0")?, deposit(2, 2, "2.5")?];
 
