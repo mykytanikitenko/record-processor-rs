@@ -19,7 +19,8 @@
 )]
 
 use core::cell::RefCell;
-use core::hash::BuildHasher;
+use core::hash::{BuildHasher, Hash};
+use core::marker::PhantomData;
 
 use allocator_api2::alloc::Allocator;
 use compio::buf::memmap2::{MmapMut, MmapOptions};
@@ -105,6 +106,8 @@ where
     capacity: usize,
     /// The byte cursor of the next record append.
     cursor: RefCell<usize>,
+    /// Marks the record type the byte mapping is interpreted as.
+    marker: PhantomData<(K, V)>,
     /// The index mapping each key to the byte offset of its latest record.
     index: RefCell<HashMap<K, usize, S, A>>,
 }
@@ -150,7 +153,7 @@ where
         // so no aliasing occurs.
         unsafe {
             core::ptr::copy_nonoverlapping(
-                (&record as *const (K, V)).cast::<u8>(),
+                core::ptr::from_ref(&record).cast::<u8>(),
                 self.base.add(offset),
                 record_size,
             );
@@ -210,6 +213,7 @@ where
             base,
             capacity,
             cursor: RefCell::new(0),
+            marker: PhantomData,
             index: RefCell::new(HashMap::with_hasher_in(hasher, alloc)),
         })
     }
