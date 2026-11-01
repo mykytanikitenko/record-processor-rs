@@ -19,6 +19,7 @@
 use core::cell::RefCell;
 use core::hash::{BuildHasher, Hash};
 use core::marker::PhantomData;
+use std::path::PathBuf;
 
 use allocator_api2::alloc::Allocator;
 use compio::buf::memmap2::{MmapMut, MmapOptions};
@@ -26,6 +27,7 @@ use compio::driver::AsRawFd as _;
 use compio::fs::File;
 use hashbrown::HashMap;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::kv::Kv;
 
@@ -108,6 +110,31 @@ where
     index: RefCell<HashMap<K, usize, S, A>>,
     /// Marks the record type the byte mapping is interpreted as.
     marker: PhantomData<(K, V)>,
+    /// Path of the backing file, removed by the drop-scheduled cleanup; taken
+    /// by [`Drop`] to schedule the removal, leaving `None` behind.
+    path: Option<PathBuf>,
+    /// Shared tracker the drop-scheduled removal registers with.
+    tracker: TaskTracker,
+}
+
+impl<K, V, S, A> Drop for FileKv<K, V, S, A>
+where
+    A: Allocator,
+{
+    #[inline]
+    fn drop(&mut self) {
+        // `Drop` is synchronous and cannot await, so the backing file's
+        // removal is detached onto the current compio runtime and tracked by
+        // the shared tracker. The tracker owner (the CLI, or the test suite)
+        // closes and waits on it before exiting, guaranteeing the file is
+        // removed on every path — success, error, and cancellation alike.
+        if let Some(path) = self.path.take() {
+            compio::runtime::spawn(self.tracker.track_future(async move {
+                drop(compio::fs::remove_file(path).await);
+            }))
+            .detach();
+        }
+    }
 }
 
 impl<K, V, S, A> FileKv<K, V, S, A>
@@ -195,6 +222,8 @@ where
             capacity,
             file,
             hasher,
+            tracker,
+            path,
         } = parts;
         let align = align_of::<(K, V)>();
         if align > MIN_PAGE_ALIGN {
@@ -214,6 +243,8 @@ where
             cursor: RefCell::new(0),
             index: RefCell::new(HashMap::with_hasher_in(hasher, alloc)),
             marker: PhantomData,
+            path: Some(path),
+            tracker,
         })
     }
 }
@@ -278,4 +309,8 @@ pub struct Parts<S, A> {
     pub file: File,
     /// The hasher builder keys are hashed with.
     pub hasher: S,
+    /// Path of the backing file, removed by the drop-scheduled cleanup.
+    pub path: PathBuf,
+    /// Shared tracker the drop-scheduled removal registers with.
+    pub tracker: TaskTracker,
 }

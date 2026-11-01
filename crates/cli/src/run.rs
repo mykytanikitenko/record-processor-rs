@@ -8,11 +8,13 @@ use service::engine_state::KvState;
 use service::{ClientId, EngineParts, ServiceState, State, Transaction, TxId, TxRecord};
 use std::hash::RandomState;
 use std::os::unix::ffi::OsStrExt as _;
+use std::path::PathBuf;
 use storage::file_kv::{
     EnumerateError, FetchError, FileKv, MapError, Parts as FileKvParts, WriteError,
 };
 use storage::file_queue::{FileQueue, OpenError, Parts as FileQueueParts};
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 /// Byte length of the transaction queue's fixed backing reservation.
 ///
@@ -226,7 +228,7 @@ async fn cancel_on_signal(token: CancellationToken) -> Result<(), CancelError> {
 async fn open_backing_file(
     name: &str,
     capacity: usize,
-) -> Result<compio::fs::File, BackingFileError> {
+) -> Result<(compio::fs::File, PathBuf), BackingFileError> {
     // Render the process-unique backing-file name `"{name}-{pid}"` into a fixed
     // stack buffer — no heap allocation and no owned-string conversion. `u32`
     // has at most ten decimal digits and every caller passes a short literal
@@ -281,10 +283,10 @@ async fn open_backing_file(
         .write(true)
         .create(true)
         .truncate(true)
-        .open(path)
+        .open(&path)
         .await?;
     file.set_len(u64::try_from(capacity)?).await?;
-    Ok(file)
+    Ok((file, path))
 }
 
 /// Drive the engine over `source`, projecting the resulting balances to
@@ -292,24 +294,37 @@ async fn open_backing_file(
 async fn process(
     source: transport::Input<compio::fs::Stdin>,
     token: &CancellationToken,
+    tracker: &TaskTracker,
 ) -> Result<(), ProcessError> {
+    let (clients_file, clients_path) =
+        open_backing_file("record-processor-clients", KV_CAPACITY).await?;
     let clients: Clients = FileKv::try_from(FileKvParts {
         alloc: Global,
         hasher: RandomState::new(),
-        file: open_backing_file("record-processor-clients", KV_CAPACITY).await?,
+        file: clients_file,
+        path: clients_path,
+        tracker: tracker.clone(),
         capacity: KV_CAPACITY,
     })
     .map_err(ProcessError::Kv)?;
+    let (records_file, records_path) =
+        open_backing_file("record-processor-records", KV_CAPACITY).await?;
     let records: Records = FileKv::try_from(FileKvParts {
         alloc: Global,
         hasher: RandomState::new(),
-        file: open_backing_file("record-processor-records", KV_CAPACITY).await?,
+        file: records_file,
+        path: records_path,
+        tracker: tracker.clone(),
         capacity: KV_CAPACITY,
     })
     .map_err(ProcessError::Kv)?;
+    let (queue_file, queue_path) =
+        open_backing_file("record-processor-queue", QUEUE_CAPACITY).await?;
     let queue: Queue = FileQueue::try_from(FileQueueParts {
         alloc: Global,
-        file: open_backing_file("record-processor-queue", QUEUE_CAPACITY).await?,
+        file: queue_file,
+        path: queue_path,
+        tracker: tracker.clone(),
         capacity: QUEUE_CAPACITY,
     })
     .map_err(ProcessError::Queue)?;
@@ -325,13 +340,19 @@ async fn process(
 async fn serve_input(
     input: Option<String>,
     token: &CancellationToken,
+    tracker: &TaskTracker,
 ) -> Result<(), ServeInputError> {
     if let Some(path) = input {
         let file = compio::fs::File::open(path).await?;
-        process(transport::Input::<compio::fs::Stdin>::from(file), token).await?;
+        process(
+            transport::Input::<compio::fs::Stdin>::from(file),
+            token,
+            tracker,
+        )
+        .await?;
     } else {
         let stdin = compio::fs::stdin();
-        process(transport::Input::Stream(stdin), token).await?;
+        process(transport::Input::Stream(stdin), token, tracker).await?;
     }
     Ok(())
 }
@@ -356,14 +377,24 @@ pub fn run() -> Result<(), RunError> {
     let token = CancellationToken::new();
     let pipeline_token = token.child_token();
     runtime.block_on(async move {
-        let pipeline = std::pin::pin!(serve_input(input, &pipeline_token));
+        let tracker = TaskTracker::new();
+        let pipeline = std::pin::pin!(serve_input(input, &pipeline_token, &tracker));
         let cancel = std::pin::pin!(cancel_on_signal(token));
-        match futures_util::future::select(pipeline, cancel).await {
+        let result = match futures_util::future::select(pipeline, cancel).await {
             Either::Left((result, _)) => result.map_err(RunError::Serve),
             Either::Right((cancel_result, remaining)) => {
-                cancel_result?;
-                remaining.await.map_err(RunError::Serve)
+                // Drain the pipeline to completion on the cancellation path so
+                // its backends drop and schedule their cleanup before the
+                // tracker is closed and awaited below.
+                let served = remaining.await.map_err(RunError::Serve);
+                match cancel_result {
+                    Err(cancel_error) => Err(RunError::Cancel(cancel_error)),
+                    Ok(()) => served,
+                }
             }
-        }
+        };
+        let _closed: bool = tracker.close();
+        tracker.wait().await;
+        result
     })
 }

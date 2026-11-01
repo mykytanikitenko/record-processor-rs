@@ -17,6 +17,7 @@
 
 use core::cell::RefCell;
 use core::marker::PhantomData;
+use std::path::PathBuf;
 
 use allocator_api2::alloc::Allocator;
 use allocator_api2::vec::Vec;
@@ -25,6 +26,7 @@ use compio::driver::AsRawFd as _;
 use compio::fs::File;
 use event_listener::Event;
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 use crate::offset::Offset;
 use crate::queue::Queue;
@@ -106,10 +108,35 @@ where
     capacity: usize,
     /// Marks the record type the byte mapping is interpreted as.
     marker: PhantomData<T>,
+    /// Path of the backing file, removed by the drop-scheduled cleanup; taken
+    /// by [`Drop`] to schedule the removal, leaving `None` behind.
+    path: Option<PathBuf>,
     /// The start offset of every published segment, in records.
     starts: RefCell<Vec<u64, A>>,
     /// The number of published records.
     tail: RefCell<u64>,
+    /// Shared tracker the drop-scheduled removal registers with.
+    tracker: TaskTracker,
+}
+
+impl<T, A> Drop for FileQueue<T, A>
+where
+    A: Allocator,
+{
+    #[inline]
+    fn drop(&mut self) {
+        // `Drop` is synchronous and cannot await, so the backing file's
+        // removal is detached onto the current compio runtime and tracked by
+        // the shared tracker. The tracker owner (the CLI, or the test suite)
+        // closes and waits on it before exiting, guaranteeing the file is
+        // removed on every path — success, error, and cancellation alike.
+        if let Some(path) = self.path.take() {
+            compio::runtime::spawn(self.tracker.track_future(async move {
+                drop(compio::fs::remove_file(path).await);
+            }))
+            .detach();
+        }
+    }
 }
 
 impl<T, A> FileQueue<T, A>
@@ -224,6 +251,8 @@ where
             alloc,
             file,
             capacity,
+            tracker,
+            path,
         } = parts;
         let align = align_of::<T>();
         if align > MIN_PAGE_ALIGN {
@@ -244,6 +273,8 @@ where
             starts: RefCell::new(Vec::new_in(alloc)),
             tail: RefCell::new(0),
             marker: PhantomData,
+            path: Some(path),
+            tracker,
         })
     }
 }
@@ -297,4 +328,8 @@ pub struct Parts<A> {
     /// `capacity` bytes with [`File::set_len`] before construction, and must
     /// not resize it while the queue is live.
     pub file: File,
+    /// Path of the backing file, removed by the drop-scheduled cleanup.
+    pub path: PathBuf,
+    /// Shared tracker the drop-scheduled removal registers with.
+    pub tracker: TaskTracker,
 }
