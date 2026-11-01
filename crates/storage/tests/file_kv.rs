@@ -101,8 +101,7 @@ mod tests {
         let third = kv.next_key(Some(2), &cancel).await;
         let last = kv.next_key(Some(3), &cancel).await;
         anyhow::ensure!(
-            (first, second, third, last)
-                == (Ok(Some(1)), Ok(Some(2)), Ok(Some(3)), Ok(None)),
+            (first, second, third, last) == (Ok(Some(1)), Ok(Some(2)), Ok(Some(3)), Ok(None)),
             "unexpected enumeration {first:?} {second:?} {third:?} {last:?}"
         );
         compio::fs::remove_file(&backing).await?;

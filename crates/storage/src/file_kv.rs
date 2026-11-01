@@ -121,16 +121,17 @@ where
 {
     /// Read the value stored for `key` under the index borrow.
     async fn read(&self, key: K) -> Option<V> {
-        let offset = self.index.borrow().get(&key).copied()?;
-        // SAFETY: `base` is a stable, aligned pointer into the file-backed
-        // mapping, and `offset` is a byte offset recorded by `write` that lies
-        // within it.
-        let ptr = unsafe { self.base.add(offset) }.cast::<(K, V)>();
-        // SAFETY: `ptr` points at an initialized, correctly-aligned `(K, V)`
-        // record (written by `write` and never mutated in place), so reading it
-        // does not alias any live mutable reference.
-        let record = unsafe { ptr.read() };
-        Some(record.1)
+        self.index.borrow().get(&key).copied().map(|offset| {
+            // SAFETY: `base` is a stable, aligned pointer into the file-backed
+            // mapping, and `offset` is a byte offset recorded by `write` that
+            // lies within it.
+            let ptr = unsafe { self.base.add(offset) }.cast::<(K, V)>();
+            // SAFETY: `ptr` points at an initialized, correctly-aligned `(K, V)`
+            // record (written by `write` and never mutated in place), so reading
+            // it does not alias any live mutable reference.
+            let record = unsafe { ptr.read() };
+            record.1
+        })
     }
 
     /// Append `(key, value)` and repoint `key` at its new record.
